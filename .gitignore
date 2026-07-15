@@ -6,11 +6,9 @@ DerivedData/
 # Bundle assemblé par build.sh
 dist/
 
-# Ressources générées par Scripts/generate_icon.swift (AppIcon.icns, preview.png)
-Resources/
+Scripts/Resources/
 
 # macOS
 .DS_Store
 
 .vscode/
-generate_icon.swift

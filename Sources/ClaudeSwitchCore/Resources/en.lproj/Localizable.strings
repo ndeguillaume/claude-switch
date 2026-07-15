@@ -1,0 +1,12 @@
+"error.notLoggedIn" = "No active Claude Code account. Launch `claude` and sign in with /login before capturing.";
+"error.profileUnknown" = "Unknown profile: %@.";
+"error.profileNotCaptured" = "Profile “%@” has not been captured yet. Sign in to that account in Claude Code, then use “Capture active account into”.";
+"error.profileAlreadyExists" = "A profile named “%@” already exists.";
+"error.invalidProfileName" = "The profile name cannot be empty.";
+"error.keychain" = "Keychain error: %@";
+"error.configUnreadable" = "Cannot read %@.";
+"error.oauthAccountMissing" = "No oauthAccount block in ~/.claude.json. Sign in to Claude Code first.";
+"error.usageTokenMissing" = "No usable OAuth token in the Keychain for this profile.";
+"error.usageRequestFailed" = "Usage request rejected (HTTP %d).";
+"error.usageRateLimited" = "This account is rate limited.";
+"error.usageResponseUnreadable" = "Unreadable usage response.";

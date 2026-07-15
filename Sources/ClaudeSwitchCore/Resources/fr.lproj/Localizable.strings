@@ -1,0 +1,12 @@
+"error.notLoggedIn" = "Aucun compte Claude Code actif. Lance `claude` et connecte-toi avec /login avant de capturer.";
+"error.profileUnknown" = "Profil inconnu : %@.";
+"error.profileNotCaptured" = "Le profil « %@ » n'a pas encore été capturé. Connecte-toi à ce compte dans Claude Code puis utilise « Capturer le compte actif ».";
+"error.profileAlreadyExists" = "Un profil « %@ » existe déjà.";
+"error.invalidProfileName" = "Le nom du profil ne peut pas être vide.";
+"error.keychain" = "Erreur Keychain : %@";
+"error.configUnreadable" = "Impossible de lire %@.";
+"error.oauthAccountMissing" = "Pas de bloc oauthAccount dans ~/.claude.json. Connecte-toi d'abord dans Claude Code.";
+"error.usageTokenMissing" = "Pas de token OAuth exploitable dans le Keychain pour ce profil.";
+"error.usageRequestFailed" = "Requête d'usage refusée (HTTP %d).";
+"error.usageRateLimited" = "Limite de requêtes atteinte sur ce compte.";
+"error.usageResponseUnreadable" = "Réponse d'usage illisible.";
