@@ -62,6 +62,10 @@ public final class AnthropicUsageFetcher: UsageFetcher {
         guard let http = response as? HTTPURLResponse else {
             throw SwitchError.usageResponseUnreadable
         }
+        if http.statusCode == 429 {
+            let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap { Int($0) }
+            throw SwitchError.usageRateLimited(retryAfterSeconds: retryAfter)
+        }
         guard http.statusCode == 200 else {
             throw SwitchError.usageRequestFailed(http.statusCode)
         }

@@ -1,11 +1,11 @@
-// Génère Resources/AppIcon.icns. Usage : swift Scripts/generate_icon.swift
+// Usage: swift Scripts/generate_icon.swift
 import AppKit
 
 let projectRoot = URL(fileURLWithPath: CommandLine.arguments[0])
     .deletingLastPathComponent()
     .deletingLastPathComponent()
-let resourcesDir = projectRoot.appendingPathComponent("Scripts/Resources")
-let iconsetDir = resourcesDir.appendingPathComponent("Scripts/Resources/AppIcon.iconset")
+let resourcesDir = projectRoot.appendingPathComponent("Resources")
+let iconsetDir = resourcesDir.appendingPathComponent("AppIcon.iconset")
 
 let gradient = NSGradient(colors: [
     NSColor(calibratedRed: 0.93, green: 0.60, blue: 0.45, alpha: 1),
@@ -20,7 +20,7 @@ func makeWhiteSymbol() -> NSImage {
             accessibilityDescription: nil
         )?.withSymbolConfiguration(configuration)
     else {
-        fatalError("Symbole SF introuvable")
+        fatalError("SF Symbol not found")
     }
     let tinted = NSImage(size: symbol.size)
     tinted.lockFocus()
@@ -43,7 +43,7 @@ func drawIcon(canvas: CGFloat) {
     )
     gradient.draw(in: squircle, angle: -90)
 
-    // Léger reflet en haut pour le relief, fondu progressif pour éviter une ligne dure.
+    // Top sheen fades to clear to avoid a hard edge.
     NSGraphicsContext.current?.saveGraphicsState()
     squircle.addClip()
     let sheen = NSGradient(
@@ -112,7 +112,7 @@ iconutil.arguments = [
 try iconutil.run()
 iconutil.waitUntilExit()
 guard iconutil.terminationStatus == 0 else {
-    fatalError("iconutil a échoué (code \(iconutil.terminationStatus))")
+    fatalError("iconutil failed (code \(iconutil.terminationStatus))")
 }
 try fileManager.removeItem(at: iconsetDir)
 

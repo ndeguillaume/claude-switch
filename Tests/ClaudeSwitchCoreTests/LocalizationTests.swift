@@ -13,6 +13,8 @@ final class LocalizationTests: XCTestCase {
         .oauthAccountMissing,
         .usageTokenMissing,
         .usageRequestFailed(401),
+        .usageRateLimited(retryAfterSeconds: 120),
+        .usageRateLimited(retryAfterSeconds: nil),
         .usageResponseUnreadable,
     ]
 

@@ -50,8 +50,8 @@ public final class SystemKeychainClient: KeychainClient {
             kSecAttrAccount as String: item.account,
             kSecValueData as String: item.data,
         ]
-        // SecItemUpdate en premier : préserve l'ACL de l'item créé par le CLI claude,
-        // donc pas de nouvelle demande d'autorisation côté claude après un switch.
+        // SecItemUpdate first: preserves the ACL of the item created by the claude CLI,
+        // so claude won't prompt for authorization again after a switch.
         var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
         if status == errSecItemNotFound {
             var add = query

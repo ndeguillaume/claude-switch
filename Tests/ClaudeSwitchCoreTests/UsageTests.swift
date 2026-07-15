@@ -92,6 +92,11 @@ final class UsageTests: XCTestCase {
         XCTAssertEqual(error as? SwitchError, .usageTokenMissing)
     }
 
+    func testRateLimitErrorEquatableAcrossRetryAfter() {
+        XCTAssertEqual(SwitchError.usageRateLimited(retryAfterSeconds: 120), .usageRateLimited(retryAfterSeconds: 120))
+        XCTAssertNotEqual(SwitchError.usageRateLimited(retryAfterSeconds: 120), .usageRateLimited(retryAfterSeconds: nil))
+    }
+
     func testUsageFetcherErrorIsPropagated() async throws {
         let keychain = InMemoryKeychainClient()
         try keychain.upsert(

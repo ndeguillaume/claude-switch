@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compile le binaire release et assemble dist/ClaudeSwitch.app (bundle menu bar, signé ad hoc).
+# Compile the release binary and assemble dist/Claude Switch.app (menu bar bundle, ad-hoc signed).
 set -euo pipefail
 cd "$(dirname "$0")"
 

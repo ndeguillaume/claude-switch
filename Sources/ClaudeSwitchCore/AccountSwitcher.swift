@@ -15,8 +15,7 @@ public final class AccountSwitcher {
 
     public var profiles: [Profile] { store.profiles }
 
-    // Service basé sur l'id, pas sur le nom : renommer un profil ne doit pas
-    // casser le lien avec sa copie Keychain.
+    // Keyed by id, not name: renaming a profile must not break the link to its Keychain copy.
     public func profileService(for profile: Profile) -> String {
         "ClaudeSwitch.profile.\(profile.id)"
     }
@@ -59,8 +58,8 @@ public final class AccountSwitcher {
         else {
             throw SwitchError.profileNotCaptured(name)
         }
-        // Re-capture du profil courant avant de l'écraser : le CLI claude rafraîchit
-        // ses tokens en arrière-plan, un snapshot périmé rendrait le retour impossible.
+        // Re-capture the current profile before overwriting it: the claude CLI refreshes
+        // its tokens in the background, and a stale snapshot would make switching back impossible.
         if let current = activeProfileName(), current != name {
             try? captureActiveAccount(into: current)
         }

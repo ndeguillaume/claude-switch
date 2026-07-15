@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var launchAtLoginCheckbox: NSButton?
     private var usageCache: [String: String] = [:]
     private var usageNextRefresh = Date.distantPast
+    private var isFetchingUsage = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -114,7 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Usage
 
     @objc private func refreshUsageNow() {
-        usageCache.removeAll()
+        // Force an immediate fetch, but never while one is already running:
+        // repeated clicks would fire a burst of requests and rate-limit the account.
+        guard !isFetchingUsage else { return }
         usageNextRefresh = .distantPast
         refreshUsage()
     }
@@ -122,21 +125,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private struct UsageOutcome {
         let name: String
         let successLine: String?
-        let failureLine: String
-        let isRateLimited: Bool
+        let failureLine: String?
+        let backoffSeconds: TimeInterval?
     }
 
     private func refreshUsage() {
         guard let switcher, let usageService else { return }
-        guard Date() >= usageNextRefresh else { return }
+        guard !isFetchingUsage, Date() >= usageNextRefresh else { return }
+        isFetchingUsage = true
         usageNextRefresh = Date().addingTimeInterval(60)
 
         let activeName = switcher.activeProfileName()
         let targets: [(name: String, service: String)] = switcher.profiles
             .filter(\.isCaptured)
             .map { profile in
-                // Le compte actif est lu depuis l'entrée du CLI, toujours fraîche ;
-                // les autres depuis leur snapshot, dont le token peut avoir expiré.
+                // The active account is read from the CLI's entry, always fresh;
+                // the others from their snapshot, whose token may have expired.
                 let service = profile.name == activeName
                     ? AccountSwitcher.activeService
                     : switcher.profileService(for: profile)
@@ -146,43 +150,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             var outcomes: [UsageOutcome] = []
             for target in targets {
-                switch await usageService.usage(tokenService: target.service) {
-                case .success(let snapshot):
-                    outcomes.append(UsageOutcome(
-                        name: target.name,
-                        successLine: Self.usageLine(for: snapshot),
-                        failureLine: "",
-                        isRateLimited: false
-                    ))
-                case .failure(let error):
-                    let isRateLimited = error as? SwitchError == .usageRequestFailed(429)
-                    outcomes.append(UsageOutcome(
-                        name: target.name,
-                        successLine: nil,
-                        failureLine: isRateLimited ? L("menu.usage.rateLimited") : L("menu.usage.unavailable"),
-                        isRateLimited: isRateLimited
-                    ))
-                }
+                outcomes.append(Self.outcome(for: await usageService.usage(tokenService: target.service), name: target.name))
             }
             let results = outcomes
             await MainActor.run {
+                self.isFetchingUsage = false
                 for outcome in results {
                     if let line = outcome.successLine {
                         self.usageCache[outcome.name] = line
-                    } else if self.usageCache[outcome.name] == nil
-                        || self.usageCache[outcome.name] == L("menu.usage.rateLimited")
-                        || self.usageCache[outcome.name] == L("menu.usage.unavailable") {
-                        // Pas de valeur connue : afficher l'échec. Sinon on garde la dernière valeur.
-                        self.usageCache[outcome.name] = outcome.failureLine
+                    } else if let failureLine = outcome.failureLine, self.usageCache[outcome.name] == nil {
+                        // Only let a failure replace a known value when we never had one.
+                        self.usageCache[outcome.name] = failureLine
                     }
                 }
-                if results.contains(where: \.isRateLimited) {
-                    self.usageNextRefresh = Date().addingTimeInterval(300)
+                if let backoff = results.compactMap(\.backoffSeconds).max() {
+                    self.usageNextRefresh = Date().addingTimeInterval(backoff)
                 }
                 if let menu = self.statusItem.menu {
                     self.applyUsageSubtitles(to: menu)
                 }
             }
+        }
+    }
+
+    private static func outcome(for result: Result<UsageSnapshot, Error>, name: String) -> UsageOutcome {
+        switch result {
+        case .success(let snapshot):
+            return UsageOutcome(name: name, successLine: usageLine(for: snapshot), failureLine: nil, backoffSeconds: nil)
+        case .failure(let error):
+            if case .usageRateLimited(let retryAfter) = error as? SwitchError {
+                return UsageOutcome(
+                    name: name,
+                    successLine: nil,
+                    failureLine: L("menu.usage.rateLimited"),
+                    backoffSeconds: TimeInterval(retryAfter ?? 300)
+                )
+            }
+            return UsageOutcome(name: name, successLine: nil, failureLine: L("menu.usage.unavailable"), backoffSeconds: nil)
         }
     }
 
@@ -206,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return L("menu.usage", percent, time)
     }
 
-    // MARK: - Profils
+    // MARK: - Profiles
 
     @objc private func switchProfile(_ sender: NSMenuItem) {
         guard let switcher, let name = sender.representedObject as? String else { return }
@@ -257,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         run { try switcher.deleteProfile(name) }
     }
 
-    // MARK: - Paramètres
+    // MARK: - Settings
 
     @objc private func openSettings() {
         if settingsWindow == nil {

@@ -1,12 +1,10 @@
-# Sorties de build Swift Package Manager
+# Swift Package Manager build output
 .build/
 .swiftpm/
 DerivedData/
 
-# Bundle assemblé par build.sh
+# Bundle assembled by build.sh
 dist/
-
-Scripts/Resources/
 
 # macOS
 .DS_Store
