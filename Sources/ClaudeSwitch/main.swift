@@ -70,11 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let title = profile.isCaptured
                     ? "\(profile.name)\(profile.email.map { "  (\($0))" } ?? "")"
                     : L("menu.profileNotCaptured", profile.name)
+                let isActive = profile.name == activeName
                 let item = NSMenuItem(title: title, action: #selector(switchProfile(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = profile.name
-                item.isEnabled = profile.isCaptured
-                item.state = profile.name == activeName ? .on : .off
+                item.isEnabled = profile.isCaptured && !isActive
+                item.state = isActive ? .on : .off
                 if profile.isCaptured, #available(macOS 14.4, *) {
                     item.subtitle = usageCache[profile.name] ?? L("menu.usage.loading")
                 }
@@ -93,6 +94,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(profileSubmenu(title: L("menu.delete"), profiles: profiles, action: #selector(deleteProfile(_:))))
         }
 
+        if profiles.contains(where: \.isCaptured) {
+            let refreshItem = NSMenuItem(title: L("menu.refreshUsage"), action: #selector(refreshUsageNow), keyEquivalent: "r")
+            refreshItem.target = self
+            menu.addItem(refreshItem)
+        }
+
         menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: L("menu.settings"), action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
@@ -105,6 +112,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: - Usage
+
+    @objc private func refreshUsageNow() {
+        usageCache.removeAll()
+        usageNextRefresh = .distantPast
+        refreshUsage()
+    }
 
     private struct UsageOutcome {
         let name: String
@@ -197,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func switchProfile(_ sender: NSMenuItem) {
         guard let switcher, let name = sender.representedObject as? String else { return }
+        if name == switcher.activeProfileName() { return }
         if claudeIsRunning() && !ask(
             title: L("alert.sessionsRunning.title"),
             message: L("alert.sessionsRunning.message"),
