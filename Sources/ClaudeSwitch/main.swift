@@ -261,15 +261,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             action: #selector(toggleLaunchAtLogin(_:))
         )
         checkbox.sizeToFit()
-        checkbox.setFrameOrigin(NSPoint(x: 20, y: 24))
+        checkbox.setFrameOrigin(NSPoint(x: 20, y: 48))
         launchAtLoginCheckbox = checkbox
 
+        let versionLabel = NSTextField(labelWithString: L("settings.version", Self.appVersion))
+        versionLabel.font = .systemFont(ofSize: 11)
+        versionLabel.textColor = .secondaryLabelColor
+        versionLabel.sizeToFit()
+        versionLabel.setFrameOrigin(NSPoint(x: 20, y: 16))
+
         let contentSize = NSSize(
-            width: max(320, checkbox.frame.maxX + 20),
-            height: checkbox.frame.height + 48
+            width: max(320, checkbox.frame.maxX + 20, versionLabel.frame.maxX + 20),
+            height: checkbox.frame.maxY + 20
         )
         let content = NSView(frame: NSRect(origin: .zero, size: contentSize))
         content.addSubview(checkbox)
+        content.addSubview(versionLabel)
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
@@ -282,6 +289,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.isReleasedWhenClosed = false
         window.center()
         return window
+    }
+
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSButton) {

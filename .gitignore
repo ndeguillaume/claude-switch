@@ -12,5 +12,5 @@ Resources/
 # macOS
 .DS_Store
 
-Scripts/
 .vscode/
+generate_icon.swift

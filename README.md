@@ -51,6 +51,10 @@ Pour le compte actif la valeur est toujours fiable (token rafraîchi par le CLI)
 
 Menu bar → Paramètres… → cocher « Lancer l'app au démarrage » (via `SMAppService`, l'app apparaît dans Réglages Système → Général → Ouverture). L'enregistrement pointe sur l'emplacement actuel du bundle : si tu déplaces l'app, décoche puis recoche la case.
 
+## Version
+
+Le numéro de version vit dans le fichier `VERSION` à la racine (source unique). `build.sh` l'injecte dans `CFBundleShortVersionString`/`CFBundleVersion` de l'Info.plist, et l'app l'affiche dans Paramètres… (« Version 1.0.0 »). Pour publier une nouvelle version : édite `VERSION`, `./build.sh`.
+
 ## Langues
 
 Interface localisée en français (défaut) et anglais, sélection automatique selon la langue du système. Les chaînes vivent dans `Sources/*/Resources/{fr,en}.lproj/Localizable.strings` ; ajouter une langue = ajouter un dossier `xx.lproj` dans les deux targets et lister la langue dans `CFBundleLocalizations` (build.sh).
