@@ -2,16 +2,10 @@
 "menu.activeAccount.unknown" = "inconnu";
 "menu.noProfiles" = "Aucun profil";
 "menu.profileNotCaptured" = "%@  (non capturé)";
-"menu.usage" = "Session : %d %% · fin %@";
-"menu.usage.noReset" = "Session : %d %%";
-"menu.usage.loading" = "chargement de l'usage…";
-"menu.usage.unavailable" = "usage indisponible";
-"menu.usage.rateLimited" = "limite de requêtes atteinte • utilisation indisponible";
 "menu.addProfile" = "Ajouter un profil…";
 "menu.captureInto" = "Capturer le compte actif dans";
 "menu.rename" = "Renommer";
 "menu.delete" = "Supprimer";
-"menu.refreshUsage" = "Rafraîchir l'usage";
 "menu.settings" = "Paramètres…";
 "menu.quit" = "Quitter Claude Switch";
 "alert.ok" = "OK";

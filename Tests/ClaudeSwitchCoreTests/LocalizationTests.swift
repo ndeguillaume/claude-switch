@@ -11,11 +11,6 @@ final class LocalizationTests: XCTestCase {
         .keychain(-25300),
         .configUnreadable("/tmp/x.json"),
         .oauthAccountMissing,
-        .usageTokenMissing,
-        .usageRequestFailed(401),
-        .usageRateLimited(retryAfterSeconds: 120),
-        .usageRateLimited(retryAfterSeconds: nil),
-        .usageResponseUnreadable,
     ]
 
     func testEveryErrorResolvesToALocalizedMessage() {

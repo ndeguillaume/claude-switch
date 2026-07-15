@@ -6,7 +6,3 @@
 "error.keychain" = "Keychain error: %@";
 "error.configUnreadable" = "Cannot read %@.";
 "error.oauthAccountMissing" = "No oauthAccount block in ~/.claude.json. Sign in to Claude Code first.";
-"error.usageTokenMissing" = "No usable OAuth token in the Keychain for this profile.";
-"error.usageRequestFailed" = "Usage request rejected (HTTP %d).";
-"error.usageRateLimited" = "This account is rate limited.";
-"error.usageResponseUnreadable" = "Unreadable usage response.";

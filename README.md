@@ -35,12 +35,6 @@ L'icône (`Resources/AppIcon.icns`) est générée par script : `swift Scripts/g
 
 Ensuite, un clic sur un profil dans le menu bascule le compte. La coche indique le compte actif, l'email est affiché à côté de chaque profil capturé. Les sous-menus Renommer / Supprimer / Capturer gèrent les profils (supprimer un profil efface sa copie Keychain, pas le compte Claude).
 
-## Usage de session
-
-Sous chaque profil capturé, le menu affiche l'utilisation de la fenêtre de 5 h en cours et son heure de reset (« Session : 34 % · fin 18:00 »), via l'endpoint OAuth d'usage d'Anthropic, le même que la commande `/usage` du CLI. Rafraîchi à l'ouverture du menu, cache de 60 s. Le token de chaque profil ne quitte la machine que vers `api.anthropic.com`.
-
-Pour le compte actif la valeur est toujours fiable (token rafraîchi par le CLI). Pour un profil inactif depuis longtemps, son token snapshot peut être expiré : le menu affiche alors « usage indisponible ». L'app ne rafraîchit jamais elle-même un token, pour ne pas désynchroniser le snapshot du CLI.
-
 ## Limites connues
 
 - La bascule ne s'applique qu'aux nouveaux processus `claude`. Les sessions déjà lancées gardent leur compte (l'app affiche un avertissement si des sessions tournent : une session active peut réécrire ses tokens par-dessus le compte choisi).
