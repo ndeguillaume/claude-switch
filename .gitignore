@@ -1,0 +1,16 @@
+# Sorties de build Swift Package Manager
+.build/
+.swiftpm/
+DerivedData/
+
+# Bundle assemblé par build.sh
+dist/
+
+# Ressources générées par Scripts/generate_icon.swift (AppIcon.icns, preview.png)
+Resources/
+
+# macOS
+.DS_Store
+
+Scripts/
+.vscode/
