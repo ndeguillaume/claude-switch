@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var switcher: AccountSwitcher?
     private var usageService: UsageService?
     private var initError: String?
-    private var settingsWindow: NSWindow?
+    private var settingsController: SettingsWindowController?
     private var launchAtLoginCheckbox: NSButton?
     private var modulesListController: MenuBarModulesListController?
     private var sessionPercentCache: [String: Int] = [:]
@@ -381,51 +381,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openSettings() {
         closePanel()
-        if settingsWindow == nil {
-            settingsWindow = makeSettingsWindow()
+        if settingsController == nil {
+            settingsController = SettingsWindowController(
+                title: L("settings.title"),
+                panes: [
+                    .init(identifier: "general", label: L("settings.tab.general"), symbolName: "gearshape", view: makeGeneralPane()),
+                    .init(identifier: "about", label: L("settings.tab.about"), symbolName: "info.circle", view: makeAboutPane()),
+                ]
+            )
         }
         launchAtLoginCheckbox?.state = SMAppService.mainApp.status == .enabled ? .on : .off
         NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsController?.window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeSettingsWindow() -> NSWindow {
-        let tabView = NSTabView()
-        tabView.translatesAutoresizingMaskIntoConstraints = false
-
-        let generalTab = NSTabViewItem(identifier: "general")
-        generalTab.label = L("settings.tab.general")
-        generalTab.view = makeGeneralTab()
-        tabView.addTabViewItem(generalTab)
-
-        let aboutTab = NSTabViewItem(identifier: "about")
-        aboutTab.label = L("settings.tab.about")
-        aboutTab.view = makeAboutTab()
-        tabView.addTabViewItem(aboutTab)
-
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 240))
-        content.addSubview(tabView)
-        NSLayoutConstraint.activate([
-            tabView.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
-            tabView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
-            tabView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
-            tabView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
-        ])
-
-        let window = NSWindow(
-            contentRect: content.frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = L("settings.title")
-        window.contentView = content
-        window.isReleasedWhenClosed = false
-        window.center()
-        return window
-    }
-
-    private func makeGeneralTab() -> NSView {
+    private func makeGeneralPane() -> NSView {
         let titles = [
             Self.showSessionUsageKey: L("settings.menuBar.sessionUsage"),
             Self.showSessionResetKey: L("settings.menuBar.sessionReset"),
@@ -466,10 +436,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stack.alignment = .leading
         stack.spacing = 8
         stack.setCustomSpacing(20, after: modulesList)
-        return paddedTab(containing: stack, centered: false)
+        return pane(containing: stack, centered: false)
     }
 
-    private func makeAboutTab() -> NSView {
+    private func makeAboutPane() -> NSView {
         let nameLabel = NSTextField(labelWithString: "Claude Switch")
         nameLabel.font = .boldSystemFont(ofSize: 14)
 
@@ -481,7 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 4
-        return paddedTab(containing: stack, centered: true)
+        return pane(containing: stack, centered: true)
     }
 
     private func sectionLabel(_ title: String) -> NSTextField {
@@ -491,23 +461,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return label
     }
 
-    private func paddedTab(containing stack: NSStackView, centered: Bool) -> NSView {
+    // Pins the stack to all four edges so the container reports a definite
+    // fittingSize, which the settings window reads to size itself per pane.
+    // Centered panes get extra vertical breathing room.
+    private func pane(containing stack: NSStackView, centered: Bool) -> NSView {
         let container = NSView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stack)
+        let vertical: CGFloat = centered ? 28 : 20
         var constraints = [
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: vertical),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -vertical),
         ]
         if centered {
             constraints += [
                 stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 40),
+                stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -40),
+                container.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
             ]
         } else {
             constraints += [
-                stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-                stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+                stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+                stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
             ]
         }
         NSLayoutConstraint.activate(constraints)
