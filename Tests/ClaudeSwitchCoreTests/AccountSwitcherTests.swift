@@ -168,4 +168,26 @@ final class AccountSwitcherTests: XCTestCase {
         try writeConfigFixture(to: configURL, email: "autre@example.com")
         XCTAssertNil(switcher.activeProfileName())
     }
+
+    func testUsageTokenServiceUsesLiveItemForActiveProfile() throws {
+        try logIn(email: "perso@example.com", tokens: "tokens-perso")
+        try switcher.captureActiveAccount(into: "Perso")
+
+        XCTAssertEqual(switcher.usageTokenService(forProfileNamed: "Perso"), AccountSwitcher.activeService)
+    }
+
+    func testUsageTokenServiceUsesSnapshotForInactiveProfile() throws {
+        try logIn(email: "perso@example.com", tokens: "tokens-perso")
+        try switcher.captureActiveAccount(into: "Perso")
+        try logIn(email: "pro@example.com", tokens: "tokens-pro")
+        try switcher.captureActiveAccount(into: "Pro")
+        // Perso is now inactive (Pro is active).
+        XCTAssertEqual(switcher.activeProfileName(), "Pro")
+
+        XCTAssertEqual(switcher.usageTokenService(forProfileNamed: "Perso"), service("Perso"))
+    }
+
+    func testUsageTokenServiceUnknownProfileIsNil() {
+        XCTAssertNil(switcher.usageTokenService(forProfileNamed: "Inconnu"))
+    }
 }

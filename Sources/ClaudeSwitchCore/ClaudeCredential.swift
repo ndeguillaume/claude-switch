@@ -6,11 +6,16 @@ import Foundation
 /// restoring such a blob yields a profile that silently forces a fresh /login, so the
 /// switcher must treat "no accessToken" as "no usable session".
 enum ClaudeCredential {
-    static func hasAccessToken(_ data: Data) -> Bool {
+    static func accessToken(_ data: Data) -> String? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = root["claudeAiOauth"] as? [String: Any],
-              let token = oauth["accessToken"] as? String
-        else { return false }
-        return token.isEmpty == false
+              let token = oauth["accessToken"] as? String,
+              token.isEmpty == false
+        else { return nil }
+        return token
+    }
+
+    static func hasAccessToken(_ data: Data) -> Bool {
+        accessToken(data) != nil
     }
 }

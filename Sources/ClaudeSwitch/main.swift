@@ -10,9 +10,13 @@ func L(_ key: String, _ args: CVarArg...) -> String {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var switcher: AccountSwitcher?
+    private var usageService: UsageService?
     private var initError: String?
     private var settingsWindow: NSWindow?
     private var launchAtLoginCheckbox: NSButton?
+    private var usageCache: [String: String] = [:]
+    private var usageNextRefresh = Date.distantPast
+    private var isFetchingUsage = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -26,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 config: .standard(),
                 store: store
             )
+            usageService = UsageService(keychain: keychain, fetcher: AnthropicUsageFetcher())
         } catch {
             initError = error.localizedDescription
         }
@@ -72,6 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 item.representedObject = profile.name
                 item.isEnabled = profile.isCaptured && !isActive
                 item.state = isActive ? .on : .off
+                if profile.isCaptured, #available(macOS 14.4, *) {
+                    item.subtitle = usageCache[profile.name] ?? L("menu.usage.loading")
+                }
                 menu.addItem(item)
             }
         }
@@ -87,11 +95,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(profileSubmenu(title: L("menu.delete"), profiles: profiles, action: #selector(deleteProfile(_:))))
         }
 
+        if profiles.contains(where: \.isCaptured) {
+            let refreshItem = NSMenuItem(title: L("menu.refreshUsage"), action: #selector(refreshUsageNow), keyEquivalent: "r")
+            refreshItem.target = self
+            menu.addItem(refreshItem)
+        }
+
         menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: L("menu.settings"), action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
         menu.addItem(quitItem())
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        refreshUsage()
+    }
+
+    // MARK: - Usage
+
+    @objc private func refreshUsageNow() {
+        // Force an immediate fetch, but never while one is running: repeated clicks
+        // would fire a burst of requests and rate-limit the account.
+        guard !isFetchingUsage else { return }
+        usageNextRefresh = .distantPast
+        refreshUsage()
+    }
+
+    private struct UsageOutcome {
+        let name: String
+        let line: String
+        let backoffSeconds: TimeInterval?
+    }
+
+    private func refreshUsage() {
+        guard let switcher, let usageService else { return }
+        guard !isFetchingUsage, Date() >= usageNextRefresh else { return }
+
+        let targets: [(name: String, service: String)] = switcher.profiles
+            .filter(\.isCaptured)
+            .compactMap { profile in
+                switcher.usageTokenService(forProfileNamed: profile.name).map { (profile.name, $0) }
+            }
+        guard targets.isEmpty == false else { return }
+
+        isFetchingUsage = true
+        usageNextRefresh = Date().addingTimeInterval(60)
+
+        Task {
+            var outcomes: [UsageOutcome] = []
+            for target in targets {
+                let result = await usageService.usage(tokenService: target.service)
+                outcomes.append(Self.outcome(for: result, name: target.name))
+            }
+            let results = outcomes
+            await MainActor.run {
+                self.isFetchingUsage = false
+                for outcome in results {
+                    self.usageCache[outcome.name] = outcome.line
+                }
+                if let backoff = results.compactMap(\.backoffSeconds).max() {
+                    self.usageNextRefresh = Date().addingTimeInterval(backoff)
+                }
+                if let menu = self.statusItem.menu {
+                    self.applyUsageSubtitles(to: menu)
+                }
+            }
+        }
+    }
+
+    private static func outcome(for result: Result<UsageSnapshot, Error>, name: String) -> UsageOutcome {
+        switch result {
+        case .success(let snapshot):
+            return UsageOutcome(name: name, line: usageLine(for: snapshot), backoffSeconds: nil)
+        case .failure(let error):
+            switch error as? SwitchError {
+            case .usageTokenExpired, .usageTokenMissing:
+                return UsageOutcome(name: name, line: L("menu.usage.expired"), backoffSeconds: nil)
+            case .usageRateLimited(let retryAfter):
+                return UsageOutcome(name: name, line: L("menu.usage.rateLimited"), backoffSeconds: TimeInterval(retryAfter ?? 300))
+            default:
+                return UsageOutcome(name: name, line: L("menu.usage.unavailable"), backoffSeconds: nil)
+            }
+        }
+    }
+
+    private static func usageLine(for snapshot: UsageSnapshot) -> String {
+        let percent = Int(snapshot.session.utilizationPercent.rounded())
+        guard let resetsAt = snapshot.session.resetsAt else {
+            return L("menu.usage.noReset", percent)
+        }
+        let time = DateFormatter.localizedString(from: resetsAt, dateStyle: .none, timeStyle: .short)
+        return L("menu.usage", percent, time)
+    }
+
+    private func applyUsageSubtitles(to menu: NSMenu) {
+        guard #available(macOS 14.4, *) else { return }
+        for item in menu.items {
+            guard let name = item.representedObject as? String,
+                  item.action == #selector(switchProfile(_:)),
+                  let line = usageCache[name]
+            else { continue }
+            item.subtitle = line
+        }
     }
 
     // MARK: - Profiles
@@ -106,7 +212,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) {
             return
         }
-        run { try switcher.activate(name) }
+        guard run({ try switcher.activate(name) }) else { return }
+        verifySwitch(to: name)
+    }
+
+    // Same check as CCSwitcher after a switch: ask the claude CLI (local read,
+    // no network) whether it sees the account we just restored. Catches an
+    // unreadable keychain item or a mismatched ~/.claude.json immediately,
+    // instead of at the user's next claude command.
+    private func verifySwitch(to name: String) {
+        guard let switcher else { return }
+        let expectedEmail = switcher.profiles.first { $0.name == name }?.email
+        let verifier = ClaudeAuthVerifier(cli: ClaudeCLIProcessRunner())
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = verifier.verify(expectedEmail: expectedEmail)
+            DispatchQueue.main.async {
+                switch result {
+                case .verified:
+                    break
+                case .unavailable:
+                    NSLog("ClaudeSwitch: claude CLI unavailable, switch to %@ not verified", name)
+                case .notLoggedIn:
+                    self?.showError(L("alert.verify.notLoggedIn", name))
+                case .wrongAccount(let expected, let actual):
+                    self?.showError(L("alert.verify.wrongAccount", expected, actual, name))
+                }
+            }
+        }
     }
 
     @objc private func addProfile() {
@@ -217,6 +349,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try action()
             refreshButtonTitle()
+            // A switch or capture changes which token backs each profile; drop the
+            // cached usage so the next menu open refetches instead of showing stale %.
+            usageCache.removeAll()
+            usageNextRefresh = .distantPast
             return true
         } catch {
             showError(error.localizedDescription)

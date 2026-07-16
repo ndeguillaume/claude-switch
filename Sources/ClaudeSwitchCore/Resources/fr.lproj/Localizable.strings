@@ -7,3 +7,8 @@
 "error.securityCommand" = "Erreur Keychain (security) : %@";
 "error.configUnreadable" = "Impossible de lire %@.";
 "error.oauthAccountMissing" = "Pas de bloc oauthAccount dans ~/.claude.json. Connecte-toi d'abord dans Claude Code.";
+"error.usageTokenMissing" = "Pas de token OAuth exploitable dans le Keychain pour ce profil.";
+"error.usageTokenExpired" = "Token expiré pour ce profil. Bascule dessus pour le rafraîchir.";
+"error.usageRequestFailed" = "Requête d'usage refusée (HTTP %d).";
+"error.usageRateLimited" = "Limite de requêtes atteinte sur ce compte.";
+"error.usageResponseUnreadable" = "Réponse d'usage illisible.";

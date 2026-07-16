@@ -10,6 +10,11 @@ public enum SwitchError: LocalizedError, Equatable {
     case securityCommand(String)
     case configUnreadable(String)
     case oauthAccountMissing
+    case usageTokenMissing
+    case usageTokenExpired
+    case usageRequestFailed(Int)
+    case usageRateLimited(retryAfterSeconds: Int?)
+    case usageResponseUnreadable
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +36,16 @@ public enum SwitchError: LocalizedError, Equatable {
             return localized("error.configUnreadable", path)
         case .oauthAccountMissing:
             return localized("error.oauthAccountMissing")
+        case .usageTokenMissing:
+            return localized("error.usageTokenMissing")
+        case .usageTokenExpired:
+            return localized("error.usageTokenExpired")
+        case .usageRequestFailed(let status):
+            return localized("error.usageRequestFailed", status)
+        case .usageRateLimited:
+            return localized("error.usageRateLimited")
+        case .usageResponseUnreadable:
+            return localized("error.usageResponseUnreadable")
         }
     }
 }

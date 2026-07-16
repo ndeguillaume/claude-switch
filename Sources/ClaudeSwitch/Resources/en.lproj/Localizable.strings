@@ -2,6 +2,13 @@
 "menu.activeAccount.unknown" = "unknown";
 "menu.noProfiles" = "No profiles";
 "menu.profileNotCaptured" = "%@  (not captured)";
+"menu.usage" = "Session: %d%% · resets %@";
+"menu.usage.noReset" = "Session: %d%%";
+"menu.usage.loading" = "loading usage…";
+"menu.usage.expired" = "token expired · switch to refresh";
+"menu.usage.unavailable" = "usage unavailable";
+"menu.usage.rateLimited" = "rate limited";
+"menu.refreshUsage" = "Refresh usage";
 "menu.addProfile" = "Add a profile…";
 "menu.captureInto" = "Capture active account into";
 "menu.rename" = "Rename";
@@ -22,6 +29,8 @@
 "alert.deleteProfile.title" = "Delete “%@”?";
 "alert.deleteProfile.message" = "Its credentials copy in the Keychain will be deleted. The Claude account itself is not affected.";
 "alert.deleteProfile.confirm" = "Delete";
+"alert.verify.notLoggedIn" = "The switch to “%@” was written, but claude does not consider itself logged in. Start claude: if it asks you to log in, sign in and re-capture this profile.";
+"alert.verify.wrongAccount" = "After the switch, claude sees account %2$@ instead of %1$@. Re-capture profile “%3$@” from a claude session signed in to the right account.";
 "settings.title" = "Settings";
 "settings.launchAtLogin" = "Launch at login";
 "settings.version" = "Version %@";

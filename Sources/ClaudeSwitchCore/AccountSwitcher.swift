@@ -72,6 +72,14 @@ public final class AccountSwitcher {
         try config.writeOAuthAccount(oauthAccountData)
     }
 
+    /// Keychain service to read a profile's usage token from. The active profile is
+    /// read from the live item the CLI keeps refreshed; the others from their snapshot,
+    /// whose token may have expired since capture.
+    public func usageTokenService(forProfileNamed name: String) -> String? {
+        guard let profile = store.profile(named: name) else { return nil }
+        return name == activeProfileName() ? Self.activeService : profileService(for: profile)
+    }
+
     public func activeProfileName() -> String? {
         guard let email = try? config.activeEmail(), email.isEmpty == false else { return nil }
         return store.profiles.first { $0.email == email }?.name

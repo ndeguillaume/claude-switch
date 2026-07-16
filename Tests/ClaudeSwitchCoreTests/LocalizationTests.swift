@@ -12,6 +12,11 @@ final class LocalizationTests: XCTestCase {
         .securityCommand("The specified item could not be found in the keychain."),
         .configUnreadable("/tmp/x.json"),
         .oauthAccountMissing,
+        .usageTokenMissing,
+        .usageTokenExpired,
+        .usageRequestFailed(401),
+        .usageRateLimited(retryAfterSeconds: 300),
+        .usageResponseUnreadable,
     ]
 
     func testEveryErrorResolvesToALocalizedMessage() {

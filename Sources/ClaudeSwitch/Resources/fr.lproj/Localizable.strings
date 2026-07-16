@@ -2,6 +2,13 @@
 "menu.activeAccount.unknown" = "inconnu";
 "menu.noProfiles" = "Aucun profil";
 "menu.profileNotCaptured" = "%@  (non capturé)";
+"menu.usage" = "Session : %d %% · fin %@";
+"menu.usage.noReset" = "Session : %d %%";
+"menu.usage.loading" = "chargement de l'usage…";
+"menu.usage.expired" = "token expiré · bascule pour rafraîchir";
+"menu.usage.unavailable" = "usage indisponible";
+"menu.usage.rateLimited" = "limite de requêtes atteinte";
+"menu.refreshUsage" = "Rafraîchir l'usage";
 "menu.addProfile" = "Ajouter un profil…";
 "menu.captureInto" = "Capturer le compte actif dans";
 "menu.rename" = "Renommer";
@@ -22,6 +29,8 @@
 "alert.deleteProfile.title" = "Supprimer « %@ » ?";
 "alert.deleteProfile.message" = "La copie de ses identifiants dans le Keychain sera supprimée. Le compte Claude lui-même n'est pas touché.";
 "alert.deleteProfile.confirm" = "Supprimer";
+"alert.verify.notLoggedIn" = "La bascule vers « %@ » est écrite, mais claude ne se considère pas connecté. Relance un claude : s'il demande un login, connecte-toi puis re-capture ce profil.";
+"alert.verify.wrongAccount" = "Après la bascule, claude voit le compte %2$@ au lieu de %1$@. Re-capture le profil « %3$@ » depuis une session claude connectée au bon compte.";
 "settings.title" = "Paramètres";
 "settings.launchAtLogin" = "Lancer l'app au démarrage";
 "settings.version" = "Version %@";

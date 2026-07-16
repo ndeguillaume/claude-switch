@@ -19,6 +19,20 @@ Tous les accès Keychain passent par `/usr/bin/security` (le binaire système, m
 
 Avant chaque bascule, l'app re-capture automatiquement le profil courant : le CLI claude rafraîchit ses tokens en arrière-plan, et un snapshot périmé rendrait le retour impossible.
 
+Après chaque bascule, l'app vérifie via `claude auth status --json` (lecture locale, sans réseau) que claude voit bien un compte connecté et que son email correspond au profil activé — même vérification que CCSwitcher. En cas d'écart (item Keychain illisible, mauvais compte), une alerte l'annonce immédiatement au lieu de laisser la surprise au prochain `claude`.
+
+## Usage de session
+
+Sous chaque profil capturé, le menu affiche l'utilisation de la fenêtre de 5 h en cours et son heure de reset (« Session : 34 % · fin 18:00 »), via l'endpoint OAuth d'usage d'Anthropic (`api.anthropic.com/api/oauth/usage`), le même que la commande `/usage` du CLI. Rafraîchi à l'ouverture du menu, cache de 60 s, item « Rafraîchir l'usage » (⌘R) pour forcer. Le token de chaque profil ne quitte la machine que vers `api.anthropic.com`.
+
+La fiabilité tient à la source du token : pour le **compte actif**, l'app lit l'item live `Claude Code-credentials` que le CLI garde rafraîchi, donc la valeur est toujours à jour. Pour un profil **inactif**, elle lit son snapshot, dont le token peut avoir expiré : le menu affiche alors « token expiré · bascule pour rafraîchir » plutôt qu'un chiffre faux. L'app ne rafraîchit jamais elle-même un token inactif (voir ci-dessous), pour ne pas entrer en course avec le CLI. Un `429` met la cadence en pause selon l'en-tête `Retry-After`.
+
+## Tokens expirés : jamais de refresh par l'app
+
+L'app ne rafraîchit jamais un token elle-même, comme CCSwitcher. Un accessToken expiré n'est pas un problème : au premier lancement, claude le renouvelle seul via le refreshToken du credential restauré, sans `/login`. Un `/logout` dans claude, en revanche, révoque le refreshToken côté serveur : tout snapshot pris avant devient définitivement invalide (« Login expired ») et il faut `/login` puis re-capturer le profil. Ne jamais faire `/logout` pour changer de compte, c'est précisément le travail de la bascule.
+
+Note : `claude auth status` est une lecture purement locale (vérifié sur claude 2.1.211, binaire et test réseau à l'appui) ; il ne déclenche aucun refresh, contrairement à ce que suggère le README de CCSwitcher. Seul un vrai appel authentifié (un prompt) force claude à rafraîchir.
+
 ## Build
 
 ```bash
