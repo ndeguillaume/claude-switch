@@ -297,6 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         guard run({ try switcher.activate(name) }) else { return }
+        panelModel.tab = .usage
         verifySwitch(to: name)
     }
 

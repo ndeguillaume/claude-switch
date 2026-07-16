@@ -19,27 +19,22 @@ struct PanelView: View {
     private var panel: some View {
         let accent = model.activeRow?.accent
         return VStack(spacing: 0) {
-            Picker("", selection: $model.tab) {
-                Text(L("panel.tab.usage")).tag(PanelModel.Tab.usage)
-                Text(L("panel.tab.accounts")).tag(PanelModel.Tab.accounts)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            PillSegmentedControl(
+                selection: $model.tab,
+                segments: [
+                    .init(value: .usage, label: L("panel.tab.usage")),
+                    .init(value: .accounts, label: L("panel.tab.accounts")),
+                ]
+            )
             .padding(.horizontal, 14)
             .padding(.top, 12)
             .padding(.bottom, 12)
 
             SelfSizingScrollView(maxHeight: 420) {
-                VStack(spacing: 8) {
-                    switch model.tab {
-                    case .usage:
-                        UsagePage(rows: model.rows, actions: actions)
-                    case .accounts:
-                        AccountsPage(rows: model.rows, actions: actions)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
+                ProfileList(tab: model.tab, rows: model.rows, actions: actions)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
+                    .animation(.spring(response: 0.38, dampingFraction: 0.86), value: model.tab)
             }
 
             Divider()
@@ -49,33 +44,117 @@ struct PanelView: View {
     }
 }
 
-// MARK: - Usage page
+// MARK: - Profile list
 
-private struct UsagePage: View {
+/// A single list of profile cards kept mounted across tabs. Only each card's body
+/// swaps between the usage gauges and the account actions, so a profile's card —
+/// and its avatar — keeps its view identity and updates in place instead of being
+/// torn down and rebuilt (which made the avatar flicker on every tab change).
+private struct ProfileList: View {
+    let tab: PanelModel.Tab
     let rows: [ProfileRow]
     let actions: PanelActions
 
+    // Usage lists captured profiles only; accounts lists them all.
+    private var visibleRows: [ProfileRow] {
+        tab == .usage ? rows.filter(\.isCaptured) : rows
+    }
+
     var body: some View {
-        let captured = rows.filter(\.isCaptured)
-        if rows.isEmpty {
-            EmptyProfilesView(addProfile: actions.addProfile)
-        } else if captured.isEmpty {
-            HintView(text: L("panel.usage.empty"))
-        } else {
-            ForEach(captured) { row in
-                UsageCard(row: row)
+        VStack(spacing: 8) {
+            if rows.isEmpty {
+                EmptyProfilesView(addProfile: actions.addProfile)
+            } else if tab == .usage && visibleRows.isEmpty {
+                HintView(text: L("panel.usage.empty"))
+            } else {
+                ForEach(visibleRows) { row in
+                    ProfileCard(tab: tab, row: row, actions: actions)
+                }
+                if tab == .accounts {
+                    AddProfileRow(action: actions.addProfile)
+                        // Enter only once the cards above have settled their new
+                        // heights, otherwise the fade-in-down fights the layout
+                        // still shifting the button's final position under it.
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: -8))
+                                .animation(.easeOut(duration: 0.22).delay(0.18)),
+                            removal: .opacity.animation(.easeOut(duration: 0.1))
+                        ))
+                }
             }
         }
     }
 }
 
-private struct UsageCard: View {
+// MARK: - Pill segmented control
+
+/// A capsule-outlined segmented control: the selected segment is a neutral filled
+/// pill, sliding between positions on selection.
+private struct PillSegmentedControl<Value: Hashable>: View {
+    struct Segment: Identifiable {
+        let value: Value
+        let label: String
+        var id: Value { value }
+    }
+
+    @Binding var selection: Value
+    let segments: [Segment]
+    @Namespace private var namespace
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(segments) { segment in
+                segmentButton(segment)
+            }
+        }
+        .padding(3)
+        .background(
+            Capsule()
+                .fill(Color.primary.opacity(0.05))
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+        )
+    }
+
+    private func segmentButton(_ segment: Segment) -> some View {
+        let isSelected = segment.value == selection
+        return Text(segment.label)
+            .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.14))
+                        .matchedGeometryEffect(id: "selectedPill", in: namespace)
+                }
+            }
+            .contentShape(Capsule())
+            .onTapGesture {
+                guard !isSelected else { return }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    selection = segment.value
+                }
+            }
+    }
+}
+
+// MARK: - Card
+
+/// One profile's card. The chrome (rounded wrapper) and header stay mounted across
+/// tabs; only the body swaps, so the avatar never re-renders. The card grows and
+/// shrinks in place as the body changes, animated by the caller.
+private struct ProfileCard: View {
+    let tab: PanelModel.Tab
     let row: ProfileRow
+    let actions: PanelActions
+
+    private var canSwitch: Bool { row.isCaptured && !row.isActive }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             CardHeader(row: row) {
-                if case .ready(_, _, .some(let reason)) = row.usage {
+                if tab == .usage, case .ready(_, _, .some(let reason)) = row.usage {
                     Image(systemName: "bolt.slash.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
@@ -84,6 +163,53 @@ private struct UsageCard: View {
                 }
             }
 
+            body(for: tab)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Sequence the swap instead of stacking it on the resize: the old
+                // body clears fast, the card settles its new height, then the new
+                // body fades in once the frame has stopped moving.
+                .transition(.asymmetric(
+                    insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.16)),
+                    removal: .opacity.animation(.easeOut(duration: 0.1))
+                ))
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.primary.opacity(0.06))
+        )
+        .contextMenu {
+            Button(L("panel.action.edit")) { actions.edit(row.name) }
+            if canSwitch {
+                Button(L("panel.action.switch")) { actions.switchTo(row.name) }
+            }
+            Button(L("panel.action.capture")) { actions.capture(row.name) }
+            Divider()
+            Button(role: .destructive) { actions.delete(row.name) } label: {
+                Text(L("menu.delete"))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func body(for tab: PanelModel.Tab) -> some View {
+        switch tab {
+        case .usage:
+            UsageBody(row: row)
+        case .accounts:
+            AccountBody(row: row, canSwitch: canSwitch, actions: actions)
+        }
+    }
+}
+
+// MARK: - Usage body
+
+private struct UsageBody: View {
+    let row: ProfileRow
+
+    var body: some View {
+        Group {
             switch row.usage {
             case .notCaptured:
                 EmptyView()
@@ -99,18 +225,14 @@ private struct UsageCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             case .ready(let session, let weekly, _):
-                UsageGauge(title: L("panel.session"), window: session)
-                if let weekly {
-                    UsageGauge(title: L("panel.week"), window: weekly)
+                VStack(spacing: 8) {
+                    UsageGauge(title: L("panel.session"), window: session)
+                    if let weekly {
+                        UsageGauge(title: L("panel.week"), window: weekly)
+                    }
                 }
             }
         }
-        .padding(12)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.primary.opacity(0.06))
-        )
         .accessibilityElement(children: .combine)
     }
 }
@@ -171,21 +293,38 @@ private struct UsageGauge: View {
     }
 }
 
-// MARK: - Accounts page
+// MARK: - Accounts body
 
-private struct AccountsPage: View {
-    let rows: [ProfileRow]
+private struct AccountBody: View {
+    let row: ProfileRow
+    let canSwitch: Bool
     let actions: PanelActions
 
     var body: some View {
-        if rows.isEmpty {
-            EmptyProfilesView(addProfile: actions.addProfile)
-        } else {
-            VStack(spacing: 8) {
-                ForEach(rows) { row in
-                    AccountCard(row: row, actions: actions)
+        HStack(spacing: 2) {
+            if canSwitch {
+                Button(L("panel.action.switchShort")) { actions.switchTo(row.name) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.primary)
+                    .help(L("panel.action.switch"))
+            } else if !row.isCaptured {
+                Button(L("panel.action.captureShort")) { actions.capture(row.name) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help(L("panel.action.capture"))
+            }
+            Spacer()
+            if row.isCaptured {
+                RowIconButton(symbol: "square.and.arrow.down", help: L("panel.action.capture")) {
+                    actions.capture(row.name)
                 }
-                AddProfileRow(action: actions.addProfile)
+            }
+            RowIconButton(symbol: "pencil", help: L("panel.action.editHelp")) {
+                actions.edit(row.name)
+            }
+            RowIconButton(symbol: "trash", help: L("panel.action.delete")) {
+                actions.delete(row.name)
             }
         }
     }
@@ -197,21 +336,20 @@ private struct AddProfileRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 20))
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
                 Text(L("panel.addProfile"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 7)
                     .fill(Color.primary.opacity(hovering ? 0.06 : 0))
             )
         }
@@ -219,63 +357,6 @@ private struct AddProfileRow: View {
         .onHover { hovering = $0 }
         .keyboardShortcut("n")
         .help(L("menu.addProfile"))
-    }
-}
-
-private struct AccountCard: View {
-    let row: ProfileRow
-    let actions: PanelActions
-
-    private var canSwitch: Bool { row.isCaptured && !row.isActive }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CardHeader(row: row)
-
-            HStack(spacing: 2) {
-                if canSwitch {
-                    Button(L("panel.action.switchShort")) { actions.switchTo(row.name) }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(row.accent)
-                        .help(L("panel.action.switch"))
-                } else if !row.isCaptured {
-                    Button(L("panel.action.captureShort")) { actions.capture(row.name) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help(L("panel.action.capture"))
-                }
-                Spacer()
-                if row.isCaptured {
-                    RowIconButton(symbol: "square.and.arrow.down", help: L("panel.action.capture")) {
-                        actions.capture(row.name)
-                    }
-                }
-                RowIconButton(symbol: "pencil", help: L("panel.action.editHelp")) {
-                    actions.edit(row.name)
-                }
-                RowIconButton(symbol: "trash", help: L("panel.action.delete")) {
-                    actions.delete(row.name)
-                }
-            }
-        }
-        .padding(12)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.primary.opacity(0.06))
-        )
-        .contextMenu {
-            Button(L("panel.action.edit")) { actions.edit(row.name) }
-            if canSwitch {
-                Button(L("panel.action.switch")) { actions.switchTo(row.name) }
-            }
-            Button(L("panel.action.capture")) { actions.capture(row.name) }
-            Divider()
-            Button(role: .destructive) { actions.delete(row.name) } label: {
-                Text(L("menu.delete"))
-            }
-        }
     }
 }
 
