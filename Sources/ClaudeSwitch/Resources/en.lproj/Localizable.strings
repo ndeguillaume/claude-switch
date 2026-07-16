@@ -1,5 +1,4 @@
-"menu.activeAccount" = "Active account: %@";
-"menu.activeAccount.unknown" = "unknown";
+"menu.activeProfile" = "Active profile";
 "menu.noProfiles" = "No profiles";
 "menu.profileNotCaptured" = "%@  (not captured)";
 "menu.usage" = "Session: %d%% · resets %@";
