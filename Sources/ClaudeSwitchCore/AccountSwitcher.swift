@@ -38,7 +38,9 @@ public final class AccountSwitcher {
         guard var profile = store.profile(named: name) else {
             throw SwitchError.profileUnknown(name)
         }
-        guard let active = try keychain.read(service: Self.activeService) else {
+        guard let active = try keychain.read(service: Self.activeService),
+              ClaudeCredential.hasAccessToken(active.data)
+        else {
             throw SwitchError.notLoggedIn
         }
         let oauthAccountData = try config.readOAuthAccount()
@@ -57,6 +59,9 @@ public final class AccountSwitcher {
               let item = try keychain.read(service: profileService(for: profile))
         else {
             throw SwitchError.profileNotCaptured(name)
+        }
+        guard ClaudeCredential.hasAccessToken(item.data) else {
+            throw SwitchError.credentialEmpty(name)
         }
         // Re-capture the current profile before overwriting it: the claude CLI refreshes
         // its tokens in the background, and a stale snapshot would make switching back impossible.

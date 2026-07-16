@@ -6,9 +6,10 @@ final class LocalizationTests: XCTestCase {
         .notLoggedIn,
         .profileUnknown("Zorg"),
         .profileNotCaptured("Zorg"),
+        .credentialEmpty("Zorg"),
         .profileAlreadyExists("Zorg"),
         .invalidProfileName,
-        .keychain(-25300),
+        .securityCommand("The specified item could not be found in the keychain."),
         .configUnreadable("/tmp/x.json"),
         .oauthAccountMissing,
     ]
@@ -25,6 +26,7 @@ final class LocalizationTests: XCTestCase {
     func testParameterizedErrorsIncludeTheirArgument() {
         XCTAssertTrue(SwitchError.profileUnknown("Zorg").errorDescription!.contains("Zorg"))
         XCTAssertTrue(SwitchError.profileNotCaptured("Zorg").errorDescription!.contains("Zorg"))
+        XCTAssertTrue(SwitchError.credentialEmpty("Zorg").errorDescription!.contains("Zorg"))
         XCTAssertTrue(SwitchError.profileAlreadyExists("Zorg").errorDescription!.contains("Zorg"))
         XCTAssertTrue(SwitchError.configUnreadable("/tmp/x.json").errorDescription!.contains("/tmp/x.json"))
     }

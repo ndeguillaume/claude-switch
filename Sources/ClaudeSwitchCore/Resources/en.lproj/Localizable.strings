@@ -1,8 +1,9 @@
 "error.notLoggedIn" = "No active Claude Code account. Launch `claude` and sign in with /login before capturing.";
 "error.profileUnknown" = "Unknown profile: %@.";
 "error.profileNotCaptured" = "Profile “%@” has not been captured yet. Sign in to that account in Claude Code, then use “Capture active account into”.";
+"error.credentialEmpty" = "Profile “%@” holds an empty token (captured while Claude had no active session). Sign in to that account in Claude Code, then re-capture it.";
 "error.profileAlreadyExists" = "A profile named “%@” already exists.";
 "error.invalidProfileName" = "The profile name cannot be empty.";
-"error.keychain" = "Keychain error: %@";
+"error.securityCommand" = "Keychain error (security): %@";
 "error.configUnreadable" = "Cannot read %@.";
 "error.oauthAccountMissing" = "No oauthAccount block in ~/.claude.json. Sign in to Claude Code first.";

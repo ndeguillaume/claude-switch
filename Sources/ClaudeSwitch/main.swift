@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("ClaudeSwitch")
             let store = try ProfileStore(directory: supportDirectory)
-            let keychain = SystemKeychainClient()
+            let keychain = SecurityCLIKeychainClient()
             switcher = AccountSwitcher(
                 keychain: keychain,
                 config: .standard(),

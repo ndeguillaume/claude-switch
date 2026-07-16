@@ -26,11 +26,17 @@ final class AccountSwitcherTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    // A distinct but structurally valid credential blob: the guard against empty
+    // accessToken must pass, while the marker keeps each fixture's data comparable.
+    private func credential(_ marker: String) -> Data {
+        Data(#"{"claudeAiOauth":{"accessToken":"\#(marker)","refreshToken":"r"}}"#.utf8)
+    }
+
     private func logIn(email: String, tokens: String) throws {
         try writeConfigFixture(to: configURL, email: email)
         try keychain.upsert(
             service: AccountSwitcher.activeService,
-            item: KeychainItem(account: "nicolas", data: Data(tokens.utf8))
+            item: KeychainItem(account: "nicolas", data: credential(tokens))
         )
     }
 
@@ -44,7 +50,7 @@ final class AccountSwitcherTests: XCTestCase {
         try switcher.captureActiveAccount(into: "Perso")
 
         let copy = keychain.items[service("Perso")]
-        XCTAssertEqual(copy?.data, Data("tokens-perso".utf8))
+        XCTAssertEqual(copy?.data, credential("tokens-perso"))
         XCTAssertEqual(copy?.account, "nicolas")
         let profile = store.profile(named: "Perso")!
         XCTAssertEqual(profile.email, "perso@example.com")
@@ -59,6 +65,33 @@ final class AccountSwitcherTests: XCTestCase {
         }
     }
 
+    func testCaptureRejectsEmptyTokenCredential() throws {
+        try writeConfigFixture(to: configURL, email: "perso@example.com")
+        try keychain.upsert(
+            service: AccountSwitcher.activeService,
+            item: KeychainItem(account: "nicolas", data: credential(""))
+        )
+
+        XCTAssertThrowsError(try switcher.captureActiveAccount(into: "Perso")) { error in
+            XCTAssertEqual(error as? SwitchError, .notLoggedIn)
+        }
+        XCTAssertNil(keychain.items[service("Perso")])
+    }
+
+    func testActivateRejectsProfileWithEmptyToken() throws {
+        try logIn(email: "perso@example.com", tokens: "tokens-perso")
+        try switcher.captureActiveAccount(into: "Perso")
+        // Simule une copie empoisonnée par une capture antérieure à tokens vides.
+        try keychain.upsert(
+            service: service("Perso"),
+            item: KeychainItem(account: "nicolas", data: credential(""))
+        )
+
+        XCTAssertThrowsError(try switcher.activate("Perso")) { error in
+            XCTAssertEqual(error as? SwitchError, .credentialEmpty("Perso"))
+        }
+    }
+
     func testActivateRestoresKeychainAndConfig() throws {
         try logIn(email: "perso@example.com", tokens: "tokens-perso")
         try switcher.captureActiveAccount(into: "Perso")
@@ -68,7 +101,7 @@ final class AccountSwitcherTests: XCTestCase {
         try switcher.activate("Perso")
 
         let active = keychain.items[AccountSwitcher.activeService]
-        XCTAssertEqual(active?.data, Data("tokens-perso".utf8))
+        XCTAssertEqual(active?.data, credential("tokens-perso"))
         XCTAssertEqual(try ClaudeConfigFile(url: configURL).activeEmail(), "perso@example.com")
         XCTAssertEqual(switcher.activeProfileName(), "Perso")
     }
@@ -82,12 +115,12 @@ final class AccountSwitcherTests: XCTestCase {
         // Le CLI claude rafraîchit ses tokens : l'item actif diverge du snapshot Pro.
         try keychain.upsert(
             service: AccountSwitcher.activeService,
-            item: KeychainItem(account: "nicolas", data: Data("tokens-pro-v2".utf8))
+            item: KeychainItem(account: "nicolas", data: credential("tokens-pro-v2"))
         )
 
         try switcher.activate("Perso")
 
-        XCTAssertEqual(keychain.items[service("Pro")]?.data, Data("tokens-pro-v2".utf8))
+        XCTAssertEqual(keychain.items[service("Pro")]?.data, credential("tokens-pro-v2"))
     }
 
     func testActivateAfterRenameStillWorks() throws {
@@ -99,7 +132,7 @@ final class AccountSwitcherTests: XCTestCase {
         try switcher.renameProfile("Perso", to: "Boulot")
         try switcher.activate("Boulot")
 
-        XCTAssertEqual(keychain.items[AccountSwitcher.activeService]?.data, Data("tokens-perso".utf8))
+        XCTAssertEqual(keychain.items[AccountSwitcher.activeService]?.data, credential("tokens-perso"))
         XCTAssertEqual(switcher.activeProfileName(), "Boulot")
     }
 

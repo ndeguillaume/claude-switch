@@ -4,9 +4,10 @@ public enum SwitchError: LocalizedError, Equatable {
     case notLoggedIn
     case profileUnknown(String)
     case profileNotCaptured(String)
+    case credentialEmpty(String)
     case profileAlreadyExists(String)
     case invalidProfileName
-    case keychain(OSStatus)
+    case securityCommand(String)
     case configUnreadable(String)
     case oauthAccountMissing
 
@@ -18,13 +19,14 @@ public enum SwitchError: LocalizedError, Equatable {
             return localized("error.profileUnknown", name)
         case .profileNotCaptured(let name):
             return localized("error.profileNotCaptured", name)
+        case .credentialEmpty(let name):
+            return localized("error.credentialEmpty", name)
         case .profileAlreadyExists(let name):
             return localized("error.profileAlreadyExists", name)
         case .invalidProfileName:
             return localized("error.invalidProfileName")
-        case .keychain(let status):
-            let message = SecCopyErrorMessageString(status, nil) as String? ?? "code \(status)"
-            return localized("error.keychain", message)
+        case .securityCommand(let message):
+            return localized("error.securityCommand", message)
         case .configUnreadable(let path):
             return localized("error.configUnreadable", path)
         case .oauthAccountMissing:
