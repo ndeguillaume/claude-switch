@@ -48,6 +48,24 @@ public struct UsageSnapshot: Equatable {
     }
 }
 
+/// The usage endpoint recomputes `resets_at` on every call, so the value drifts by
+/// a few seconds between fetches; displayed as minutes it flaps between e.g. 13:59
+/// and 14:00. Keep the previously shown time while the fresh value stays within
+/// tolerance, and round newly adopted values to the minute.
+public enum SessionReset {
+    public static func stabilized(new: Date?, previous: Date?, toleranceSeconds: TimeInterval = 90) -> Date? {
+        guard let new else { return nil }
+        if let previous, abs(new.timeIntervalSince(previous)) <= toleranceSeconds {
+            return previous
+        }
+        return roundedToMinute(new)
+    }
+
+    static func roundedToMinute(_ date: Date) -> Date {
+        Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate / 60).rounded() * 60)
+    }
+}
+
 public protocol UsageFetcher {
     func fetchUsage(accessToken: String) async throws -> UsageSnapshot
 }

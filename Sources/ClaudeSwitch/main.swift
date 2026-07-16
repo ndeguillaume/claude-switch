@@ -14,9 +14,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var initError: String?
     private var settingsWindow: NSWindow?
     private var launchAtLoginCheckbox: NSButton?
+    private var modulesListController: MenuBarModulesListController?
     private var usageCache: [String: String] = [:]
+    private var sessionPercentCache: [String: Int] = [:]
+    private var sessionResetCache: [String: Date] = [:]
     private var usageNextRefresh = Date.distantPast
     private var isFetchingUsage = false
+    private var menuBarUsageTimer: Timer?
+
+    private static let showSessionUsageKey = "menuBar.showSessionUsage"
+    private static let showSessionResetKey = "menuBar.showSessionReset"
+    private static let moduleOrderKey = "menuBar.moduleOrder"
+    private static let moduleKeys = [showSessionUsageKey, showSessionResetKey]
+
+    private var showSessionUsageInMenuBar: Bool {
+        UserDefaults.standard.bool(forKey: Self.showSessionUsageKey)
+    }
+
+    private var showSessionResetInMenuBar: Bool {
+        UserDefaults.standard.bool(forKey: Self.showSessionResetKey)
+    }
+
+    private var menuBarModulesEnabled: Bool {
+        showSessionUsageInMenuBar || showSessionResetInMenuBar
+    }
+
+    private var orderedModuleKeys: [String] {
+        MenuBarModuleOrder.resolve(
+            saved: UserDefaults.standard.stringArray(forKey: Self.moduleOrderKey) ?? [],
+            known: Self.moduleKeys
+        )
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -46,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         refreshButtonTitle()
+        applyMenuBarModules()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -124,8 +153,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private struct UsageOutcome {
         let name: String
-        let line: String
+        let snapshot: UsageSnapshot?
+        let errorLine: String?
         let backoffSeconds: TimeInterval?
+    }
+
+    // The menu bar modules need usage without the menu ever being opened, so they
+    // run their own clock instead of relying on menuWillOpen.
+    private func applyMenuBarModules() {
+        if menuBarModulesEnabled {
+            if menuBarUsageTimer == nil {
+                menuBarUsageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+                    self?.refreshUsage()
+                }
+                menuBarUsageTimer?.tolerance = 30
+            }
+            refreshUsage()
+        } else {
+            menuBarUsageTimer?.invalidate()
+            menuBarUsageTimer = nil
+        }
+        refreshButtonTitle()
     }
 
     private func refreshUsage() {
@@ -152,8 +200,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             await MainActor.run {
                 self.isFetchingUsage = false
                 for outcome in results {
-                    self.usageCache[outcome.name] = outcome.line
+                    self.store(outcome)
                 }
+                self.refreshButtonTitle()
                 if let backoff = results.compactMap(\.backoffSeconds).max() {
                     self.usageNextRefresh = Date().addingTimeInterval(backoff)
                 }
@@ -167,22 +216,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static func outcome(for result: Result<UsageSnapshot, Error>, name: String) -> UsageOutcome {
         switch result {
         case .success(let snapshot):
-            return UsageOutcome(name: name, line: usageLine(for: snapshot), backoffSeconds: nil)
+            return UsageOutcome(name: name, snapshot: snapshot, errorLine: nil, backoffSeconds: nil)
         case .failure(let error):
             switch error as? SwitchError {
             case .usageTokenExpired, .usageTokenMissing:
-                return UsageOutcome(name: name, line: L("menu.usage.expired"), backoffSeconds: nil)
+                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.expired"), backoffSeconds: nil)
             case .usageRateLimited(let retryAfter):
-                return UsageOutcome(name: name, line: L("menu.usage.rateLimited"), backoffSeconds: TimeInterval(retryAfter ?? 300))
+                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.rateLimited"), backoffSeconds: TimeInterval(retryAfter ?? 300))
             default:
-                return UsageOutcome(name: name, line: L("menu.usage.unavailable"), backoffSeconds: nil)
+                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.unavailable"), backoffSeconds: nil)
             }
         }
     }
 
-    private static func usageLine(for snapshot: UsageSnapshot) -> String {
+    // The reset time is stabilized against the cached value before anything is
+    // displayed, so the menu subtitle and the menu bar always show the same time.
+    private func store(_ outcome: UsageOutcome) {
+        guard let snapshot = outcome.snapshot else {
+            usageCache[outcome.name] = outcome.errorLine
+            sessionPercentCache[outcome.name] = nil
+            sessionResetCache[outcome.name] = nil
+            return
+        }
         let percent = Int(snapshot.session.utilizationPercent.rounded())
-        guard let resetsAt = snapshot.session.resetsAt else {
+        let resetsAt = SessionReset.stabilized(new: snapshot.session.resetsAt, previous: sessionResetCache[outcome.name])
+        sessionPercentCache[outcome.name] = percent
+        sessionResetCache[outcome.name] = resetsAt
+        usageCache[outcome.name] = Self.usageLine(percent: percent, resetsAt: resetsAt)
+    }
+
+    private static func usageLine(percent: Int, resetsAt: Date?) -> String {
+        guard let resetsAt else {
             return L("menu.usage.noReset", percent)
         }
         let time = DateFormatter.localizedString(from: resetsAt, dateStyle: .none, timeStyle: .short)
@@ -289,31 +353,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func makeSettingsWindow() -> NSWindow {
-        let checkbox = NSButton(
-            checkboxWithTitle: L("settings.launchAtLogin"),
-            target: self,
-            action: #selector(toggleLaunchAtLogin(_:))
-        )
-        checkbox.sizeToFit()
-        checkbox.setFrameOrigin(NSPoint(x: 20, y: 48))
-        launchAtLoginCheckbox = checkbox
+        let tabView = NSTabView()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
 
-        let versionLabel = NSTextField(labelWithString: L("settings.version", Self.appVersion))
-        versionLabel.font = .systemFont(ofSize: 11)
-        versionLabel.textColor = .secondaryLabelColor
-        versionLabel.sizeToFit()
-        versionLabel.setFrameOrigin(NSPoint(x: 20, y: 16))
+        let generalTab = NSTabViewItem(identifier: "general")
+        generalTab.label = L("settings.tab.general")
+        generalTab.view = makeGeneralTab()
+        tabView.addTabViewItem(generalTab)
 
-        let contentSize = NSSize(
-            width: max(320, checkbox.frame.maxX + 20, versionLabel.frame.maxX + 20),
-            height: checkbox.frame.maxY + 20
-        )
-        let content = NSView(frame: NSRect(origin: .zero, size: contentSize))
-        content.addSubview(checkbox)
-        content.addSubview(versionLabel)
+        let aboutTab = NSTabViewItem(identifier: "about")
+        aboutTab.label = L("settings.tab.about")
+        aboutTab.view = makeAboutTab()
+        tabView.addTabViewItem(aboutTab)
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 240))
+        content.addSubview(tabView)
+        NSLayoutConstraint.activate([
+            tabView.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            tabView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            tabView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            tabView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
+        ])
 
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: contentSize),
+            contentRect: content.frame,
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -323,6 +386,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.isReleasedWhenClosed = false
         window.center()
         return window
+    }
+
+    private func makeGeneralTab() -> NSView {
+        let titles = [
+            Self.showSessionUsageKey: L("settings.menuBar.sessionUsage"),
+            Self.showSessionResetKey: L("settings.menuBar.sessionReset"),
+        ]
+        let controller = MenuBarModulesListController(
+            modules: orderedModuleKeys.map { .init(key: $0, title: titles[$0] ?? $0) },
+            isEnabled: { UserDefaults.standard.bool(forKey: $0) },
+            setEnabled: { [weak self] key, enabled in
+                UserDefaults.standard.set(enabled, forKey: key)
+                self?.applyMenuBarModules()
+            },
+            orderChanged: { [weak self] keys in
+                UserDefaults.standard.set(keys, forKey: Self.moduleOrderKey)
+                self?.refreshButtonTitle()
+            }
+        )
+        modulesListController = controller
+
+        let modulesList = controller.makeView()
+        modulesList.translatesAutoresizingMaskIntoConstraints = false
+        modulesList.widthAnchor.constraint(equalToConstant: 370).isActive = true
+        modulesList.heightAnchor.constraint(equalToConstant: controller.preferredHeight).isActive = true
+
+        let launchCheckbox = NSButton(
+            checkboxWithTitle: L("settings.launchAtLogin"),
+            target: self,
+            action: #selector(toggleLaunchAtLogin(_:))
+        )
+        launchAtLoginCheckbox = launchCheckbox
+
+        let stack = NSStackView(views: [
+            sectionLabel(L("settings.section.menuBar")),
+            modulesList,
+            sectionLabel(L("settings.section.startup")),
+            launchCheckbox,
+        ])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.setCustomSpacing(20, after: modulesList)
+        return paddedTab(containing: stack, centered: false)
+    }
+
+    private func makeAboutTab() -> NSView {
+        let nameLabel = NSTextField(labelWithString: "Claude Switch")
+        nameLabel.font = .boldSystemFont(ofSize: 14)
+
+        let versionLabel = NSTextField(labelWithString: L("settings.version", Self.appVersion))
+        versionLabel.font = .systemFont(ofSize: 11)
+        versionLabel.textColor = .secondaryLabelColor
+
+        let stack = NSStackView(views: [nameLabel, versionLabel])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 4
+        return paddedTab(containing: stack, centered: true)
+    }
+
+    private func sectionLabel(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .secondaryLabelColor
+        return label
+    }
+
+    private func paddedTab(containing stack: NSStackView, centered: Bool) -> NSView {
+        let container = NSView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        var constraints = [
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+        ]
+        if centered {
+            constraints += [
+                stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            ]
+        } else {
+            constraints += [
+                stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+                stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            ]
+        }
+        NSLayoutConstraint.activate(constraints)
+        return container
     }
 
     private static var appVersion: String {
@@ -348,11 +500,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func run(_ action: () throws -> Void) -> Bool {
         do {
             try action()
-            refreshButtonTitle()
             // A switch or capture changes which token backs each profile; drop the
             // cached usage so the next menu open refetches instead of showing stale %.
             usageCache.removeAll()
+            sessionPercentCache.removeAll()
+            sessionResetCache.removeAll()
             usageNextRefresh = .distantPast
+            refreshButtonTitle()
+            if menuBarModulesEnabled {
+                refreshUsage()
+            }
             return true
         } catch {
             showError(error.localizedDescription)
@@ -361,8 +518,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshButtonTitle() {
-        let name = switcher?.activeProfileName()
-        statusItem.button?.title = name.map { " \($0)" } ?? ""
+        guard let name = switcher?.activeProfileName() else {
+            statusItem.button?.title = ""
+            return
+        }
+        var title = " \(name)"
+        for key in orderedModuleKeys where UserDefaults.standard.bool(forKey: key) {
+            switch key {
+            case Self.showSessionUsageKey:
+                if let percent = sessionPercentCache[name] {
+                    title += L("menuBar.sessionUsage", percent)
+                }
+            case Self.showSessionResetKey:
+                if let resetsAt = sessionResetCache[name] {
+                    let time = DateFormatter.localizedString(from: resetsAt, dateStyle: .none, timeStyle: .short)
+                    title += L("menuBar.sessionReset", time)
+                }
+            default:
+                break
+            }
+        }
+        statusItem.button?.title = title
     }
 
     private func claudeIsRunning() -> Bool {

@@ -32,5 +32,15 @@
 "alert.verify.notLoggedIn" = "The switch to “%@” was written, but claude does not consider itself logged in. Start claude: if it asks you to log in, sign in and re-capture this profile.";
 "alert.verify.wrongAccount" = "After the switch, claude sees account %2$@ instead of %1$@. Re-capture profile “%3$@” from a claude session signed in to the right account.";
 "settings.title" = "Settings";
+"settings.tab.general" = "General";
+"settings.tab.about" = "About";
+"settings.section.menuBar" = "Menu bar modules";
+"settings.section.startup" = "Startup";
+"settings.menuBar.sessionUsage" = "Active profile session usage";
+"settings.menuBar.sessionReset" = "Active profile session reset time";
+"settings.menuBar.moveUp" = "Move up";
+"settings.menuBar.moveDown" = "Move down";
 "settings.launchAtLogin" = "Launch at login";
 "settings.version" = "Version %@";
+"menuBar.sessionUsage" = " · %d%%";
+"menuBar.sessionReset" = " · resets %@";

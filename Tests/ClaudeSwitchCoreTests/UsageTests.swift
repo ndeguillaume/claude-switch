@@ -113,4 +113,28 @@ final class UsageTests: XCTestCase {
         XCTAssertEqual(SwitchError.usageRateLimited(retryAfterSeconds: 120), .usageRateLimited(retryAfterSeconds: 120))
         XCTAssertNotEqual(SwitchError.usageRateLimited(retryAfterSeconds: 120), .usageRateLimited(retryAfterSeconds: nil))
     }
+
+    // MARK: - SessionReset.stabilized
+
+    private let base = Date(timeIntervalSinceReferenceDate: 800_000_040) // multiple de 60 : déjà pile à la minute
+
+    func testNilNewClearsTheDate() {
+        XCTAssertNil(SessionReset.stabilized(new: nil, previous: base))
+    }
+
+    func testFirstValueIsRoundedToTheMinute() {
+        XCTAssertEqual(SessionReset.stabilized(new: base.addingTimeInterval(29), previous: nil), base)
+        XCTAssertEqual(SessionReset.stabilized(new: base.addingTimeInterval(31), previous: nil), base.addingTimeInterval(60))
+    }
+
+    func testDriftWithinToleranceKeepsThePreviousValue() {
+        XCTAssertEqual(SessionReset.stabilized(new: base.addingTimeInterval(45), previous: base), base)
+        XCTAssertEqual(SessionReset.stabilized(new: base.addingTimeInterval(-45), previous: base), base)
+        XCTAssertEqual(SessionReset.stabilized(new: base.addingTimeInterval(90), previous: base), base)
+    }
+
+    func testNewSessionWindowAdoptsTheNewValue() {
+        let nextWindow = base.addingTimeInterval(5 * 3600 + 12)
+        XCTAssertEqual(SessionReset.stabilized(new: nextWindow, previous: base), base.addingTimeInterval(5 * 3600))
+    }
 }

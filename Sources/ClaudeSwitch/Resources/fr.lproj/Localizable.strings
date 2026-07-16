@@ -32,5 +32,15 @@
 "alert.verify.notLoggedIn" = "La bascule vers « %@ » est écrite, mais claude ne se considère pas connecté. Relance un claude : s'il demande un login, connecte-toi puis re-capture ce profil.";
 "alert.verify.wrongAccount" = "Après la bascule, claude voit le compte %2$@ au lieu de %1$@. Re-capture le profil « %3$@ » depuis une session claude connectée au bon compte.";
 "settings.title" = "Paramètres";
+"settings.tab.general" = "Général";
+"settings.tab.about" = "À propos";
+"settings.section.menuBar" = "Modules de la barre de menus";
+"settings.section.startup" = "Démarrage";
+"settings.menuBar.sessionUsage" = "Utilisation de session du profil actif";
+"settings.menuBar.sessionReset" = "Date de fin de session du profil actif";
+"settings.menuBar.moveUp" = "Monter";
+"settings.menuBar.moveDown" = "Descendre";
 "settings.launchAtLogin" = "Lancer l'app au démarrage";
 "settings.version" = "Version %@";
+"menuBar.sessionUsage" = " · %d %%";
+"menuBar.sessionReset" = " · fin %@";
