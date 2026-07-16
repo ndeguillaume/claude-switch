@@ -23,7 +23,7 @@ Après chaque bascule, l'app vérifie via `claude auth status --json` (lecture l
 
 ## Usage de session
 
-Sous chaque profil capturé, le menu affiche l'utilisation de la fenêtre de 5 h en cours et son heure de reset (« Session : 34 % · fin 18:00 »), via l'endpoint OAuth d'usage d'Anthropic (`api.anthropic.com/api/oauth/usage`), le même que la commande `/usage` du CLI. Rafraîchi à l'ouverture du menu, cache de 60 s, item « Rafraîchir l'usage » (⌘R) pour forcer. Le token de chaque profil ne quitte la machine que vers `api.anthropic.com`.
+L'onglet Utilisation du panneau affiche, pour chaque profil capturé, la fenêtre de 5 h en cours (barre de progression, %, heure de fin) et la fenêtre glissante de 7 jours, via l'endpoint OAuth d'usage d'Anthropic (`api.anthropic.com/api/oauth/usage`), le même que la commande `/usage` du CLI. Rafraîchi à l'ouverture du panneau, cache de 60 s, bouton de rafraîchissement (⌘R) pour forcer. Le token de chaque profil ne quitte la machine que vers `api.anthropic.com`.
 
 La fiabilité tient à la source du token : pour le **compte actif**, l'app lit l'item live `Claude Code-credentials` que le CLI garde rafraîchi, donc la valeur est toujours à jour. Pour un profil **inactif**, elle lit son snapshot, dont le token peut avoir expiré : le menu affiche alors « token expiré · bascule pour rafraîchir » plutôt qu'un chiffre faux. L'app ne rafraîchit jamais elle-même un token inactif (voir ci-dessous), pour ne pas entrer en course avec le CLI. Un `429` met la cadence en pause selon l'en-tête `Retry-After`.
 
@@ -46,10 +46,10 @@ L'icône (`Resources/AppIcon.icns`) est générée par script : `swift Scripts/g
 ## Setup (par compte, une seule fois)
 
 1. Lance `claude`, connecte-toi au compte voulu (`/login` si besoin), quitte claude.
-2. Menu bar → **Ajouter un profil…**, donne-lui un nom, puis « Capturer maintenant ».
+2. Icône de la barre de menus → **Ajouter un profil**, donne-lui un nom, puis « Capturer maintenant ».
 3. Dans `claude` : `/logout` puis `/login` avec le compte suivant, et recommence.
 
-Ensuite, un clic sur un profil dans le menu bascule le compte. La coche indique le compte actif, l'email est affiché à côté de chaque profil capturé. Les sous-menus Renommer / Supprimer / Capturer gèrent les profils (supprimer un profil efface sa copie Keychain, pas le compte Claude).
+Ensuite, le panneau s'ouvre d'un clic sur l'icône : le header montre le compte actif (nom + email), l'onglet Utilisation les jauges de session par profil, l'onglet Comptes la liste des profils (compte actif en premier) avec leurs actions (basculer, capturer avec confirmation, supprimer ; modifier nom et couleur via clic droit) et le bouton d'ajout. Un clic sur une ligne de l'onglet Comptes bascule le compte (badge « Actif » sur le profil courant). Chaque profil a une couleur d'accent, choisie à la création ou à l'édition, qui teinte son avatar, ses jauges et le haut du panneau quand il est actif. Supprimer un profil efface sa copie Keychain, pas le compte Claude.
 
 ## Limites connues
 

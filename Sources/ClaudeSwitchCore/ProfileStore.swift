@@ -4,14 +4,22 @@ public struct Profile: Codable, Equatable {
     public let id: String
     public var name: String
     public var email: String?
+    public var colorHex: String?
     public var oauthAccountData: Data?
 
     public var isCaptured: Bool { oauthAccountData != nil }
 
-    public init(id: String = UUID().uuidString, name: String, email: String? = nil, oauthAccountData: Data? = nil) {
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        email: String? = nil,
+        colorHex: String? = nil,
+        oauthAccountData: Data? = nil
+    ) {
         self.id = id
         self.name = name
         self.email = email
+        self.colorHex = colorHex
         self.oauthAccountData = oauthAccountData
     }
 }
@@ -36,12 +44,12 @@ public final class ProfileStore {
     }
 
     @discardableResult
-    public func add(name: String) throws -> Profile {
+    public func add(name: String, colorHex: String? = nil) throws -> Profile {
         let trimmed = try validated(name)
         guard profile(named: trimmed) == nil else {
             throw SwitchError.profileAlreadyExists(trimmed)
         }
-        let profile = Profile(name: trimmed)
+        let profile = Profile(name: trimmed, colorHex: colorHex)
         profiles.append(profile)
         try save()
         return profile

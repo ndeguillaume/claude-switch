@@ -21,12 +21,20 @@ public final class AccountSwitcher {
     }
 
     @discardableResult
-    public func addProfile(named name: String) throws -> Profile {
-        try store.add(name: name)
+    public func addProfile(named name: String, colorHex: String? = nil) throws -> Profile {
+        try store.add(name: name, colorHex: colorHex)
     }
 
     public func renameProfile(_ currentName: String, to newName: String) throws {
         try store.rename(currentName, to: newName)
+    }
+
+    public func setProfileColor(named name: String, colorHex: String?) throws {
+        guard var profile = store.profile(named: name) else {
+            throw SwitchError.profileUnknown(name)
+        }
+        profile.colorHex = colorHex
+        try store.update(profile)
     }
 
     public func deleteProfile(_ name: String) throws {

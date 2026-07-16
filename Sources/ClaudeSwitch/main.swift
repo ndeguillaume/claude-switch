@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import ServiceManagement
 import ClaudeSwitchCore
 
@@ -7,17 +8,22 @@ func L(_ key: String, _ args: CVarArg...) -> String {
     return args.isEmpty ? format : String(format: format, arguments: args)
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    private let panelModel = PanelModel()
     private var switcher: AccountSwitcher?
     private var usageService: UsageService?
     private var initError: String?
     private var settingsWindow: NSWindow?
     private var launchAtLoginCheckbox: NSButton?
     private var modulesListController: MenuBarModulesListController?
-    private var usageCache: [String: String] = [:]
     private var sessionPercentCache: [String: Int] = [:]
     private var sessionResetCache: [String: Date] = [:]
+    private var weeklyPercentCache: [String: Int] = [:]
+    private var weeklyResetCache: [String: Date] = [:]
+    private var usageErrorCache: [String: String] = [:]
+    private var usageStaleCache: [String: String] = [:]
     private var usageNextRefresh = Date.distantPast
     private var isFetchingUsage = false
     private var menuBarUsageTimer: Timer?
@@ -66,85 +72,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = Self.menuBarIcon()
         statusItem.button?.imagePosition = .imageLeading
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.delegate = self
-        statusItem.menu = menu
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(togglePanel)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+
+        let hosting = NSHostingController(rootView: PanelView(model: panelModel, actions: panelActions()))
+        hosting.sizingOptions = .preferredContentSize
+        popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = hosting
+
+        panelModel.initError = initError
+        syncModel()
         refreshButtonTitle()
         applyMenuBarModules()
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
+    // MARK: - Panel
 
-        if let initError {
-            menu.addItem(disabledItem(title: initError))
-            menu.addItem(.separator())
-            menu.addItem(quitItem())
-            return
-        }
-        guard let switcher else { return }
-
-        let profiles = switcher.profiles
-        let activeName = switcher.activeProfileName()
-
-        if profiles.isEmpty {
-            menu.addItem(disabledItem(title: L("menu.noProfiles")))
+    @objc private func togglePanel() {
+        if popover.isShown {
+            closePanel()
         } else {
-            for profile in profiles {
-                let title = profile.isCaptured
-                    ? "\(profile.name)\(profile.email.map { "  (\($0))" } ?? "")"
-                    : L("menu.profileNotCaptured", profile.name)
-                let isActive = profile.name == activeName
-                let item = NSMenuItem(title: title, action: #selector(switchProfile(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = profile.name
-                item.isEnabled = profile.isCaptured && !isActive
-                item.state = isActive ? .on : .off
-                if isActive {
-                    item.onStateImage = NSImage(
-                        systemSymbolName: "circle.inset.filled",
-                        accessibilityDescription: L("menu.activeProfile")
-                    )
-                }
-                if profile.isCaptured, #available(macOS 14.4, *) {
-                    item.subtitle = usageCache[profile.name] ?? L("menu.usage.loading")
-                }
-                menu.addItem(item)
-            }
+            showPanel()
         }
-
-        menu.addItem(.separator())
-        let addItem = NSMenuItem(title: L("menu.addProfile"), action: #selector(addProfile), keyEquivalent: "n")
-        addItem.target = self
-        menu.addItem(addItem)
-
-        if !profiles.isEmpty {
-            menu.addItem(profileSubmenu(title: L("menu.captureInto"), profiles: profiles, action: #selector(captureProfile(_:))))
-            menu.addItem(profileSubmenu(title: L("menu.rename"), profiles: profiles, action: #selector(renameProfile(_:))))
-            menu.addItem(profileSubmenu(title: L("menu.delete"), profiles: profiles, action: #selector(deleteProfile(_:))))
-        }
-
-        if profiles.contains(where: \.isCaptured) {
-            let refreshItem = NSMenuItem(title: L("menu.refreshUsage"), action: #selector(refreshUsageNow), keyEquivalent: "r")
-            refreshItem.target = self
-            menu.addItem(refreshItem)
-        }
-
-        menu.addItem(.separator())
-        let settingsItem = NSMenuItem(title: L("menu.settings"), action: #selector(openSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-        menu.addItem(quitItem())
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
+    private func showPanel() {
+        guard let button = statusItem.button else { return }
+        syncModel()
         refreshUsage()
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func closePanel() {
+        popover.performClose(nil)
+    }
+
+    private func panelActions() -> PanelActions {
+        PanelActions(
+            switchTo: { [weak self] name in self?.switchProfile(named: name) },
+            capture: { [weak self] name in self?.captureProfile(named: name) },
+            edit: { [weak self] name in self?.editProfile(named: name) },
+            delete: { [weak self] name in self?.deleteProfile(named: name) },
+            addProfile: { [weak self] in self?.addProfile() },
+            refresh: { [weak self] in self?.refreshUsageNow() },
+            openSettings: { [weak self] in self?.openSettings() },
+            quit: { NSApp.terminate(nil) }
+        )
+    }
+
+    // Rows are ordered here, once: active profile first, the rest in store order.
+    // Every page renders model.rows as-is, so all tabs share the same order.
+    private func syncModel() {
+        guard let switcher else { return }
+        let activeName = switcher.activeProfileName()
+        let profiles = switcher.profiles.filter { $0.name == activeName }
+            + switcher.profiles.filter { $0.name != activeName }
+        panelModel.rows = profiles.map { profile in
+            ProfileRow(
+                id: profile.id,
+                name: profile.name,
+                email: profile.email,
+                colorHex: profile.colorHex,
+                isActive: profile.name == activeName,
+                isCaptured: profile.isCaptured,
+                usage: usageDisplay(for: profile)
+            )
+        }
+    }
+
+    private func usageDisplay(for profile: Profile) -> UsageDisplay {
+        guard profile.isCaptured else { return .notCaptured }
+        if let message = usageErrorCache[profile.name] {
+            return .unavailable(message)
+        }
+        guard let percent = sessionPercentCache[profile.name] else { return .loading }
+        let session = WindowDisplay(percent: percent, resetsAt: sessionResetCache[profile.name])
+        let weekly = weeklyPercentCache[profile.name].map {
+            WindowDisplay(percent: $0, resetsAt: weeklyResetCache[profile.name])
+        }
+        return .ready(session: session, weekly: weekly, staleReason: usageStaleCache[profile.name])
     }
 
     // MARK: - Usage
 
-    @objc private func refreshUsageNow() {
+    private func refreshUsageNow() {
         // Force an immediate fetch, but never while one is running: repeated clicks
         // would fire a burst of requests and rate-limit the account.
         guard !isFetchingUsage else { return }
@@ -157,10 +173,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let snapshot: UsageSnapshot?
         let errorLine: String?
         let backoffSeconds: TimeInterval?
+        // Transient failures (rate limit, network blip) resolve on their own, so cached
+        // values stay displayed; persistent ones (expired token) need the user to act.
+        let isTransient: Bool
     }
 
-    // The menu bar modules need usage without the menu ever being opened, so they
-    // run their own clock instead of relying on menuWillOpen.
+    // The menu bar modules need usage without the panel ever being opened, so they
+    // run their own clock instead of relying on the panel showing.
     private func applyMenuBarModules() {
         if menuBarModulesEnabled {
             if menuBarUsageTimer == nil {
@@ -189,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard targets.isEmpty == false else { return }
 
         isFetchingUsage = true
+        panelModel.isRefreshing = true
         usageNextRefresh = Date().addingTimeInterval(60)
 
         Task {
@@ -200,6 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let results = outcomes
             await MainActor.run {
                 self.isFetchingUsage = false
+                self.panelModel.isRefreshing = false
                 for outcome in results {
                     self.store(outcome)
                 }
@@ -207,9 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if let backoff = results.compactMap(\.backoffSeconds).max() {
                     self.usageNextRefresh = Date().addingTimeInterval(backoff)
                 }
-                if let menu = self.statusItem.menu {
-                    self.applyUsageSubtitles(to: menu)
-                }
+                self.syncModel()
             }
         }
     }
@@ -217,58 +236,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static func outcome(for result: Result<UsageSnapshot, Error>, name: String) -> UsageOutcome {
         switch result {
         case .success(let snapshot):
-            return UsageOutcome(name: name, snapshot: snapshot, errorLine: nil, backoffSeconds: nil)
+            return UsageOutcome(name: name, snapshot: snapshot, errorLine: nil, backoffSeconds: nil, isTransient: false)
         case .failure(let error):
             switch error as? SwitchError {
             case .usageTokenExpired, .usageTokenMissing:
-                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.expired"), backoffSeconds: nil)
+                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.expired"), backoffSeconds: nil, isTransient: false)
             case .usageRateLimited(let retryAfter):
-                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.rateLimited"), backoffSeconds: TimeInterval(retryAfter ?? 300))
+                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.rateLimited"), backoffSeconds: TimeInterval(retryAfter ?? 300), isTransient: true)
             default:
-                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.unavailable"), backoffSeconds: nil)
+                return UsageOutcome(name: name, snapshot: nil, errorLine: L("menu.usage.unavailable"), backoffSeconds: nil, isTransient: true)
             }
         }
     }
 
-    // The reset time is stabilized against the cached value before anything is
-    // displayed, so the menu subtitle and the menu bar always show the same time.
+    // The reset times are stabilized against the cached values before anything is
+    // displayed, so the panel and the menu bar always show the same time.
     private func store(_ outcome: UsageOutcome) {
         guard let snapshot = outcome.snapshot else {
-            usageCache[outcome.name] = outcome.errorLine
-            sessionPercentCache[outcome.name] = nil
-            sessionResetCache[outcome.name] = nil
+            if outcome.isTransient, sessionPercentCache[outcome.name] != nil {
+                usageStaleCache[outcome.name] = outcome.errorLine
+            } else {
+                usageErrorCache[outcome.name] = outcome.errorLine
+                usageStaleCache[outcome.name] = nil
+                sessionPercentCache[outcome.name] = nil
+                sessionResetCache[outcome.name] = nil
+                weeklyPercentCache[outcome.name] = nil
+                weeklyResetCache[outcome.name] = nil
+            }
             return
         }
-        let percent = Int(snapshot.session.utilizationPercent.rounded())
-        let resetsAt = SessionReset.stabilized(new: snapshot.session.resetsAt, previous: sessionResetCache[outcome.name])
-        sessionPercentCache[outcome.name] = percent
-        sessionResetCache[outcome.name] = resetsAt
-        usageCache[outcome.name] = Self.usageLine(percent: percent, resetsAt: resetsAt)
-    }
-
-    private static func usageLine(percent: Int, resetsAt: Date?) -> String {
-        guard let resetsAt else {
-            return L("menu.usage.noReset", percent)
-        }
-        let time = DateFormatter.localizedString(from: resetsAt, dateStyle: .none, timeStyle: .short)
-        return L("menu.usage", percent, time)
-    }
-
-    private func applyUsageSubtitles(to menu: NSMenu) {
-        guard #available(macOS 14.4, *) else { return }
-        for item in menu.items {
-            guard let name = item.representedObject as? String,
-                  item.action == #selector(switchProfile(_:)),
-                  let line = usageCache[name]
-            else { continue }
-            item.subtitle = line
+        usageErrorCache[outcome.name] = nil
+        usageStaleCache[outcome.name] = nil
+        sessionPercentCache[outcome.name] = Int(snapshot.session.utilizationPercent.rounded())
+        sessionResetCache[outcome.name] = SessionReset.stabilized(
+            new: snapshot.session.resetsAt,
+            previous: sessionResetCache[outcome.name]
+        )
+        if let weekly = snapshot.weekly {
+            weeklyPercentCache[outcome.name] = Int(weekly.utilizationPercent.rounded())
+            weeklyResetCache[outcome.name] = SessionReset.stabilized(
+                new: weekly.resetsAt,
+                previous: weeklyResetCache[outcome.name]
+            )
+        } else {
+            weeklyPercentCache[outcome.name] = nil
+            weeklyResetCache[outcome.name] = nil
         }
     }
 
     // MARK: - Profiles
 
-    @objc private func switchProfile(_ sender: NSMenuItem) {
-        guard let switcher, let name = sender.representedObject as? String else { return }
+    private func switchProfile(named name: String) {
+        guard let switcher else { return }
         if name == switcher.activeProfileName() { return }
         if claudeIsRunning() && !ask(
             title: L("alert.sessionsRunning.title"),
@@ -306,34 +325,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func addProfile() {
+    private func addProfile() {
         guard let switcher else { return }
-        guard let name = promptForName(title: L("alert.newProfileName")) else { return }
-        let added = run { try switcher.addProfile(named: name) }
+        let defaultHex = ProfileColorHex.palette[switcher.profiles.count % ProfileColorHex.palette.count]
+        guard let form = promptForProfile(title: L("alert.newProfileName"), initialColorHex: defaultHex) else { return }
+        let added = run { try switcher.addProfile(named: form.name, colorHex: form.colorHex) }
         guard added else { return }
         if ask(
-            title: L("alert.profileCreated.title", name),
+            title: L("alert.profileCreated.title", form.name),
             message: L("alert.profileCreated.message"),
             confirmTitle: L("alert.profileCreated.confirm"),
             cancelTitle: L("alert.profileCreated.later")
         ) {
-            run { try switcher.captureActiveAccount(into: name) }
+            run { try switcher.captureActiveAccount(into: form.name) }
         }
     }
 
-    @objc private func captureProfile(_ sender: NSMenuItem) {
-        guard let switcher, let name = sender.representedObject as? String else { return }
+    // Capturing overwrites the profile's previous snapshot with whatever account the
+    // CLI is currently logged into; too consequential to run on a stray click.
+    private func captureProfile(named name: String) {
+        guard let switcher else { return }
+        guard ask(
+            title: L("alert.capture.title", name),
+            message: L("alert.capture.message"),
+            confirmTitle: L("alert.capture.confirm")
+        ) else { return }
         run { try switcher.captureActiveAccount(into: name) }
     }
 
-    @objc private func renameProfile(_ sender: NSMenuItem) {
-        guard let switcher, let name = sender.representedObject as? String else { return }
-        guard let newName = promptForName(title: L("alert.renameProfile", name), initial: name) else { return }
-        run { try switcher.renameProfile(name, to: newName) }
+    private func editProfile(named name: String) {
+        guard let switcher, let profile = switcher.profiles.first(where: { $0.name == name }) else { return }
+        let currentHex = profile.colorHex ?? ProfileColorHex.defaultHex(forSeed: profile.id)
+        guard let form = promptForProfile(
+            title: L("alert.editProfile", name),
+            initialName: name,
+            initialColorHex: currentHex
+        ) else { return }
+        run {
+            try switcher.renameProfile(name, to: form.name)
+            try switcher.setProfileColor(named: form.name, colorHex: form.colorHex)
+        }
     }
 
-    @objc private func deleteProfile(_ sender: NSMenuItem) {
-        guard let switcher, let name = sender.representedObject as? String else { return }
+    private func deleteProfile(named name: String) {
+        guard let switcher else { return }
         guard ask(
             title: L("alert.deleteProfile.title", name),
             message: L("alert.deleteProfile.message"),
@@ -344,7 +379,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Settings
 
-    @objc private func openSettings() {
+    private func openSettings() {
+        closePanel()
         if settingsWindow == nil {
             settingsWindow = makeSettingsWindow()
         }
@@ -516,13 +552,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try action()
             // A switch or capture changes which token backs each profile; drop the
-            // cached usage so the next menu open refetches instead of showing stale %.
-            usageCache.removeAll()
+            // cached usage so the next refresh refetches instead of showing stale %.
             sessionPercentCache.removeAll()
             sessionResetCache.removeAll()
+            weeklyPercentCache.removeAll()
+            weeklyResetCache.removeAll()
+            usageErrorCache.removeAll()
+            usageStaleCache.removeAll()
             usageNextRefresh = .distantPast
+            syncModel()
             refreshButtonTitle()
-            if menuBarModulesEnabled {
+            if menuBarModulesEnabled || popover.isShown {
                 refreshUsage()
             }
             return true
@@ -571,22 +611,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return process.terminationStatus == 0
     }
 
-    private func promptForName(title: String, initial: String = "") -> String? {
+    private struct ProfileForm {
+        let name: String
+        let colorHex: String
+    }
+
+    private func promptForProfile(title: String, initialName: String = "", initialColorHex: String) -> ProfileForm? {
+        closePanel()
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        field.stringValue = initial
-        alert.accessoryView = field
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 34, width: 220, height: 24))
+        field.stringValue = initialName
+
+        // .minimal opens the native swatch picker in a popover, which stays usable
+        // inside the alert's modal session (the full NSColorPanel would not).
+        let colorWell = NSColorWell(style: .minimal)
+        if let rgb = ProfileColorHex.rgb(from: initialColorHex) {
+            colorWell.color = NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+        }
+        let colorLabel = NSTextField(labelWithString: L("alert.profileColor"))
+        colorLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        colorLabel.textColor = .secondaryLabelColor
+        colorLabel.sizeToFit()
+        colorLabel.setFrameOrigin(NSPoint(x: 0, y: 7))
+        colorWell.frame = NSRect(x: colorLabel.frame.maxX + 8, y: 2, width: 44, height: 24)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 58))
+        container.addSubview(field)
+        container.addSubview(colorLabel)
+        container.addSubview(colorWell)
+        alert.accessoryView = container
+
         alert.addButton(withTitle: L("alert.ok"))
         alert.addButton(withTitle: L("alert.cancel"))
         alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let confirmed = alert.runModal() == .alertFirstButtonReturn
+        NSColorPanel.shared.close()
+        guard confirmed else { return nil }
         let name = field.stringValue.trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? nil : name
+        guard !name.isEmpty else { return nil }
+        let color = colorWell.color.usingColorSpace(.sRGB) ?? colorWell.color
+        return ProfileForm(
+            name: name,
+            colorHex: ProfileColorHex.hex(
+                red: color.redComponent,
+                green: color.greenComponent,
+                blue: color.blueComponent
+            )
+        )
     }
 
     private func ask(title: String, message: String, confirmTitle: String, cancelTitle: String? = nil) -> Bool {
+        closePanel()
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
@@ -598,38 +676,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func showError(_ message: String) {
+        closePanel()
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Claude Switch"
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.runModal()
-    }
-
-    private func profileSubmenu(title: String, profiles: [Profile], action: Selector) -> NSMenuItem {
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        for profile in profiles {
-            let item = NSMenuItem(title: profile.name, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = profile.name
-            submenu.addItem(item)
-        }
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.submenu = submenu
-        return item
-    }
-
-    private func disabledItem(title: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
-    }
-
-    private func quitItem() -> NSMenuItem {
-        let item = NSMenuItem(title: L("menu.quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        item.target = NSApp
-        return item
     }
 }
 
